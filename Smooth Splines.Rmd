@@ -1,0 +1,458 @@
+---
+title: "Práctica 3 MAS Irene Extermera Serrano"
+author: "Irene Extremera Serrano"
+date: "1/5/2020"
+output: word_document
+---
+
+<!-- ```{r global_options, include=FALSE, message=FALSE,fig.align="center"} -->
+<!--  knitr::opts_chunk$set(warning=FALSE) -->
+<!-- ``` -->
+
+ <!-- fig.width=10,fig.height=3 -->
+ 
+<!-- warning=FALSE, error=FALSE -->
+
+Como el objetivo de la práctica es comparar los modelos obtenidos por caminos computacionales distintos, se tratará cada ejemplo por separado. Primero se pondrá el código de los distintos ejemplos y posteriormente el que he obtenido mediante la función de ajuste más adecuada para finalmente realizar una comparativa de ambas.
+
+```{r}
+library(splines)
+library(readr)
+setwd('D:/Desktop/Remember/Estudios/Educación Formal/Máster/Máster Valencia/Bioestadística/Curso 1/20 3-6Modelización Avanzada/Modelos Aditivos y Suavizado/Tareas/Tarea 3')
+```
+
+#Ejemplo 2.2 
+
+En este primer modelo aditivo a realizar solo se tiene una covariable x y una variable respuesta y, cada una con seis datos.
+
+```{r}
+x <- c(.1,.2,.4,.5,.7,.9)
+y <- c(2,4,5,3,2,6)
+db <- data.frame(x,y)
+```
+
+El tipo de modelo con el que se va a trabajar será el siguiente:
+$y=B · \beta$
+
+$B$ es la matriz de diseño que se define a partir de la base del spline $B_{ij}=\beta_{j}(x_{i})$ y $\beta$ el vector de coeficientes.
+
+La estimación del vector de betas se obtiene minimizando la siguiente expresión:
+$\hat{\beta}=(B^{T}B)^{-1}B^{T}y$
+
+A continuación se procederá a crear los distintos elementos que componen el modelo: la base de splines, la matriz de diseño y el número de nodos. Y posteriormente se realizará el modelo aditivo con una covariable.
+
+```{r,echo=TRUE}
+#Base de splines
+rk <- function(x,z){
+  ((z-0.5)^2-1/12)*((x-0.5)^2-1/12)/4-((abs(x-z)-0.5)^4-(abs(x-z)-0.5)^2/2+7/240)/24
+} 
+
+#Matriz de diseño
+spl.X <- function(x,xk){
+  q<-length(xk)+2               #numero de parametros   
+  n<-length(x)        	        #numero de datos
+  X<-matrix(1,n,q)  	          #inicializacion de la matriz de diseño
+  X[,2]<-x       		          	#selecciona la segunda columna a x
+  X[,3:q]<-outer(x,xk,FUN=rk)   # y el resto a R(x,xk)
+  X
+} 
+
+#Dos nodos
+xk<-1:2/3
+
+#Matriz de diseño definitiva
+X<-spl.X(x,xk)
+
+#Modelo
+modelo2.2<-lm(y~X-1)	#modelo de regresion ajustado
+```
+
+La siguiente parte del ejercicio es realizar el mismo proceso pero mediante un camino computacional distinto. En este caso todo lo anterior equivaldría a aplicar la función bs() programada en r para la realización de splines cúbicos. También se trabajará con 1:2/3 nodos y se usará un spline de grado 3.
+
+```{r,echo=TRUE}
+#Modelo
+modelo_splines <- lm(y ~ bs(x, knots = 1:2/3, degree=1))
+modelo_splines1 <- lm(y ~ bs(x, knots = 1:2/3, degree=3))
+
+#Puntos en los que predecir.
+limites <- range(x)
+nuevos_puntos <- seq(from =limites[1], to = limites[2], by=.01) 
+nuevos_puntos <- data.frame(x= nuevos_puntos)
+
+# Predicciones
+prediccion <- predict(modelo_splines, newdata = nuevos_puntos, se.fit = TRUE, level = 0.95)
+prediccion1<- predict(modelo_splines1, newdata = nuevos_puntos, se.fit = TRUE, level = 0.95)
+
+```
+
+Una vez obtenidos los distintos modelos se procederá a su comparación.
+
+```{r}
+#Modelos
+summary(modelo2.2)
+summary(modelo_splines)
+summary(modelo_splines1)
+```
+
+Se puede observar que el primer modelo obtenido tiene un R cuadrado ajustado bastante alto (0.9935) mientras que en un spline cúbico no presenta un R cuadrado ajustado. Sus residuos son cero, lo cual indica que se adapta perfectamente a los datos obtenidos, por lo que se entiende que el método bs() es mejor para ajustarse a los datos obtenidos que en comparación al primer modelo realizado manualmente.
+
+Otra cosa a mencionar es que usando degree=3 en este caso, al tener tan pocos datos, el modelo se queda sin grados de libertad y se estaría trabajando con un modelo saturado y sobreajustado. A medida que se disminuye el valor de degree se va aumentando en grados de libertad, la curva está menos suavizada y además con un degree=1 el R cuadrado ajustado es de 0.9317, lo cual indica que el modelo es bueno y no hay tal sobreajuste como con el cúbico. 
+
+Para poder ver lo dicho anteriormente se forma más sencilla se realizarán una serie de gráficos.
+
+```{r}
+#Gráficas
+xp<-0:100/100		#valores para calcular la funcion de regresion ajustada
+Xp<-spl.X(xp,xk) #Nuevos puntos en matriz de diseño
+plot(x,y,  ylim=c(0,8) ,pch=16,main='Gráfica 1: Modelo Ejemplo 2.2')	
+lines(xp,Xp%*%coef(modelo2.2), lty=1,lwd=3,col="red")
+
+plot(x , y ,ylim=c(0,7), main='Gráfica 2:Grado 1') #Nube de puntos
+lines(x = nuevos_puntos$x, prediccion$fit, col = "red") #Predicciones
+
+plot(x , y ,ylim=c(0,7), main='Gráfica 3:Grado 3') #Nube de puntos
+lines(x = nuevos_puntos$x, prediccion1$fit, col = "red") #Predicciones
+```
+
+Efectivamente las gráficas muestran lo comentado anteriormente, la gráfica que muestra un mejor ajuste es la gráfica 3 que corresponde a un spline cúbico, y como se puede ver la recta suavizada pasa por todos los puntos. En la gráfica 1 se observa el ajuste obtenido por el modelo del ejemplo 2.2 y la recta no pasa por todos los puntos pero se acerca bastante además de estar muy suavizada. Y finalmente comentar que con un spline de grado 1 (gráfica 2) la función se ajusta bastante bien a los puntos aunque apenas esté suavizada. 
+
+#Ejemplo 2.4
+
+En este caso se trabajará con las mismas variables solo que con un modelo aditivo con una componente de penalizado.
+
+Por lo que el modelo sería el siguiente:
+$y=B · \beta$ 
+
+La estimación del vector de penalización $\beta$ se obtiendría minimizando la expresión: $\hat{\beta}=(B^{T}B+\lambda\omega)^{-1}B^{T}y$
+
+De modo que la estimación de $\beta$ se puede obtener a partir de la expresión: $Y'=B'\beta$.
+
+Siendo $Y'=(Y,0...,0)^{T}$, $B'=\left(\begin{array}{ll}B\\C \sqrt(\lambda)\end{array}\right)$ y C una matriz que se obtiene por factorización de Choleski que cumple $CC^{T}=\lambda$ de dimensión (n+q)q.
+
+A lo largo del código se pasarán los distintos elementos que componen el modelo a R  y de esa forma calcular el modelo aditivo con una covariable.
+
+Lo primero que se realiza es crear la función de la base de splines que en ese caso se usará la insertada aquí (rk), sin embargo hay varias bases de splines que pueden utilizarse (B splines, cardinal splines...), aparte se crea la matriz de diseño (X) y posteriormente sobre la matriz de pensalización(S) se crea una función para realizar la descomposición de Choleski para calcular la raiz cuadrada de la matriz (mat.sqrt). Todo esto posteriormente queda recopilado en una función que depende de lambda (prs.fit).
+
+```{r,echo=TRUE}
+x<-c(0.1,0.2,0.4,0.5,0.7,0.9)
+y<-c(2,4,5,3,2,6)
+
+#Definicion de la parte no lineal de la base de splines cubicos.
+rk <- function(x,z){
+  ((z-0.5)^2-1/12)*((x-0.5)^2-1/12)/4-((abs(x-z)-0.5)^4-(abs(x-z)-0.5)^2/2+7/240)/24
+}
+
+#Definicion de la matriz de diseno del modelo de regresion con splines.
+spl.X <- function(x,xk){
+  q<-length(xk)+2      #numero de parametros   
+  n<-length(x)                  #numero de datos
+  X<-matrix(1,n,q)  	        #inicializacion de la matriz de diseno del modelo
+  X[,2]<-x       			#selecciona la segunda columna a x
+  X[,3:q]<-outer(x,xk,FUN=rk)     # y el resto a R(x,xk)
+  X
+}
+
+xk<-1:2/3        #definicion de los nodos
+
+X<-spl.X(x,xk)    #matriz de diseño
+
+#Definición de la matriz de penalización
+spl.S<-function(xk)
+{
+  q<-length(xk)+2 #número de parámetros
+  S<-matrix(0,q,q) #inicialización de la matriz de diseño del modelo
+  S[3:q,3:q]<-outer(xk,xk,FUN=rk) 
+  S
+}
+
+S<-spl.S(xk)
+
+# Descomposicion de Choleski para calcular la raiz cuadrada de una matriz
+
+mat.sqrt<-function(S)
+{ 
+  d<-eigen(S,symmetric=TRUE) #De esta forma se puede trabajar con la matriz
+  rS<-d$vectors%*%diag(d$values^0.5)%*%t(d$vectors)  
+}
+
+B<-mat.sqrt(S) # Matriz de penalización
+
+#Función definitiva
+prs.fit<-function(y,x,xk,lambda)
+{
+  q<-length(xk)+2
+  n<-length(x)
+  Xa<-rbind(spl.X(x,xk),mat.sqrt(spl.S(xk))*sqrt(lambda))
+  y[(n+1):(n+q)]<-0
+  lm(y~Xa-1)
+}
+```
+
+La función anterior queda en función de lambda, por lo que se realizará un bucle for() para seleccionar el lambda óptimo por validación cruzada para generar un modelo que genere una menor suma de cuadrados residual.
+
+```{r,echo=TRUE}
+par(mfrow=c(1,2))
+
+xp<-0:100/100		#valores para calcular la funcion de regresion ajustada
+xk<-1:2/3
+lambda<-1e-6
+n<-length(y)
+V<-rep(0,60)
+
+for (i in 1:60)
+{
+  mod<-prs.fit(y, x,xk,lambda)
+  traA<-sum(influence(mod)$hat[1:n]) #traza de la matriz de proyeccion
+  rss<-sum((y-fitted(mod)[1:n])^2)   #suma de cuadrados residual
+  V[i]<-n*rss/(n-traA)^2             #estadistico GVC
+  lambda<-lambda*1.5
+}
+
+i<-(1:60)[V==min(V)] #calcula el indice de min(V)
+lambda<-1.5^(i-1)*1e-8 #Calcula la estimacion de lambda
+
+modelo<-prs.fit(y,x,xk,lambda)
+Xp<-spl.X(xp,xk)
+```
+
+A continuación realizaré el mismo ajuste mediante la función smooth.splines() de la librería splines, en donde el lambda óptimo se obtiene directamente indicando cv=TRUE y posteriormente las predicciónes para esos valores.
+
+```{r,echo=TRUE}
+#Modelo
+modelo_smooth_splines <- smooth.spline(y ~ x, cv = TRUE) 
+
+#Predicciones
+predicciones <- predict(modelo_smooth_splines, xp)
+```
+
+Realizaré también una curva para calcular el lambda óptimo según este método.
+
+```{r,echo=TRUE}
+#Otra forma de obtener el lambda óptimo
+# Función para calcular los RSS para los distintos lambdas 
+splineres <- function(spar){
+  res <- rep(0, length(x))
+  for (i in 1:length(x)){
+    mod <- smooth.spline(x[-i], y[-i], spar = spar) #coeficiente de lambda(spar)
+    res[i] <- predict(mod, x[i])$y - y[i]
+  }
+  return(sum(res^2))
+} 
+      
+spars <- seq(0, 1.5, by = 0.001) #Vector de lambdas
+ss <- rep(0, length(spars)) 
+for (i in 1:length(spars)){
+  ss[i] <- splineres(spars[i])
+}
+```
+
+Finalmente compararé los resultados de ambos caminos computacionales.
+
+```{r}
+#Lambdas
+modelo_smooth_splines$lambda #Lambda óptimo obtenido por cv.
+lambda #Lambda definitivo ejemplo 2.4
+```
+
+Se puede observar que el valor de los lambdas obtenido en el ejemplo 2.4 son prácticamente cero, 5.472241e-13 el obtenido por smooth.splines() y de 1.139063e-07 obtenido en el ejemplo 2.4. Un valor de lambda tan bajo indica que el grado de penalización es bastante bajo (prácticamente cero).
+
+A continuación realizo la suma de cuadrados residual para ver cuál de los dos modelos es mejor.
+
+```{r}
+#Suma de cuadrados residual
+sum((y-modelo_smooth_splines$y)^2)
+sum((y-modelo$fitted.values[c(-7,-8,-9,-10)])^2)
+```
+
+Se puede apreciar que el modelo obtenido con la función smooth.splines es mejor en comparación a al modelo del ejemplo, pues la suma de cuadrados residual es mucho menor, de 3.153154e-18 frente a 0.2048629.
+
+```{r}
+#Gráficos
+plot(y, main='Gráfica 4: Valores ajustados')
+points(modelo$fitted.values[c(-7,-8,-9,-10)],col='RED')
+points(modelo_smooth_splines$y,col='BLUE')
+legend(c(1,2),c(6,5),c('Ej','SS'),pch=5,col=c('RED','BLUE'))
+
+plot(x,y,ylim=c(0,6),main='Gráfica 5: Ajuste Ejemplo 2.4') #Ejemplo 2.4
+lines(xp,Xp%*%coef(modelo),col="red",lty=1,lwd=3)
+
+plot(x , y ,ylim=c(0,7), main='Gráfica 6:Ajsute Smooth Splines') #Nube de puntos
+lines(xp, predicciones$y, col = "red") #Predicciones
+```
+En la  gráfica 4 aparecen los valores obervados junto con los valores predichos por smooth splines y por el ejemplo 2.4. Se aprecia que los obtenidos por smooth splines (rojo) solapan perfectamente con los valores observados mientras que los otros se aproximan bastante.
+
+La gráfica 5 aparece la curva ajustada del ejemplo 2.4 y aquí se ve de mejor cómo se acerca bastante a los distintos puntos lo cual indica un buen ajuste. En contraposición, la gráfica 6 muestra una curva suavizada que pasa por todos los puntos. 
+
+#3 Árboles. 
+
+La base de datos árboles contiene tres variables: circunferencia, altura y volumen. A continuación se realizará un modelo aditivo en el que se valorará el efecto de la altura y volumen de los árboles sobre el volumen.
+
+El modelo con el que se trabaja es:
+$y=B · \beta$ 
+La estimación del vector de penalización $\beta$ se obtiene minimizando la expresión: $\hat{\beta}=(B^{T}B+\lambda\omega)^{-1}B^{T}y$
+
+De modo que la estimación de $\beta$ se puede obtener a partir de la expresión: $Y'=B'\beta$.
+
+Siendo $Y'=(Y,0...,0)^{T}$, $B'=\left(\begin{array}{ll}B\\C \sqrt(\lambda)\end{array}\right)$ y C es una matriz que se obtiene por factorización de Choleski que cumple $CC^{T}=\lambda$ de dimensión (n+q)q.
+
+A lo largo del código se pasarán los distintos elementos a R y de esa forma calcular el modelo aditivo con dos covariables. Se seguirán los mismos pasos que en el ejemplo 2.4.
+
+```{r,echo=TRUE}
+arboles <- read_table2("D:/Desktop/Remember/Estudios/Educación Formal/Máster/Máster Valencia/Bioestadística/Curso 1/20 3-6Modelización Avanzada/Modelos Aditivos y Suavizado/Tareas/Tarea 3/arboles.txt")
+attach(arboles)
+```
+
+```{r,echo=TRUE}
+#Parte no lineal de la base de splines
+rk<-function(x,z){((z-0.5)^2-1/12)*((x-0.5)^2-1/12)/4-((abs(x-z)-0.5)^4-(abs(x-z)-0.5)^2/2+7/240)/24}
+
+#Matriz de diseño del modelo de regresion con splines
+spl.X<-function(x,xk)
+{
+q<-length(xk)+2  		         #numero de parametros   
+n<-length(x)        	       #numero de datos
+X<-matrix(1,n,q)  	         #inicializacion de la matriz de diseño del modelo
+X[,2]<-x       			         #selecciona la segunda columna  a x
+X[,3:q]<-outer(x,xk,FUN=rk)  # y el resto a R(x,xk)
+X
+}
+
+#Matriz de penalizacion, S
+spl.S<-function(xk)
+{
+q<-length(xk)+2 
+S<-matrix(0,q,q)
+S[3:q,3:q]<-outer(xk,xk,FUN=rk)
+S
+}
+
+#Descomposicion de Choleski para calcular la raiz cuadrada de la matriz
+mat.sqrt<-function(S)
+{ 
+d<-eigen(S,symmetric=TRUE)
+  rS<-d$vectors%*%diag(d$values^0.5)%*%t(d$vectors)  
+}
+```
+
+Una vez que se obtienen los distintos componentes del modelo se pasa a la preparación de los datos de las covariables circunferencia y altura para poder insertarse en las funciones y matrices generadas anteriormente.
+
+```{r,echo=TRUE}
+#Funcion para preparar los datos del volumen de los cerezos con su altura y circunferencia
+am.setup<-function(x,z,q=10)
+  
+# Calcula las matrices de diseño y de penalización para un modelo aditivo con dos variables    
+{ 
+  xk <- quantile(unique(x),1:(q-2)/(q-1)) #Nodos
+  zk <- quantile(unique(z),1:(q-2)/(q-1))
+  
+  S <- list()                             #Matrices de penalización
+  S[[1]] <- S[[2]] <- matrix(0,2*q-1,2*q-1)
+  S[[1]][2:q,2:q] <- spl.S(xk)[-1,-1]
+  S[[2]][(q+1):(2*q-1),(q+1):(2*q-1)] <- spl.S(zk)[-1,-1]
+ 
+  n<-length(x)                        # Calculo la matriz del modelo
+  X<-matrix(1,n,2*q-1)
+  X[,2:q]<-spl.X(x,xk)[,-1]           # 1st smooth
+  X[,(q+1):(2*q-1)]<-spl.X(z,zk)[,-1] # 2nd smooth
+  list(X=X,S=S)
+}
+
+
+# Preparo las covariables al intervalo 0,1
+rg <- range(Circun)
+Circun<- (Circun - rg[1])/(rg[2]-rg[1])
+
+rh <- range(Altura)
+Altura <- (Altura - rh[1])/(rh[2]-rh[1])
+
+# Aplico la funcion preparativa a estos datos
+am0 <- am.setup(Circun,Altura)
+
+```
+
+Una vez que se obtienen los distintos componentes y están preparados para usarse es cuando se prodece a ajustar el modelo aditivo con las covariables altura y circunferencia.
+
+```{r,echo=TRUE}
+# Function para ajustar un modelo aditivo con dos covariables    
+fit.am<-function(y,X,S,sp){
+  rS <- mat.sqrt(sp[1]*S[[1]]+sp[2]*S[[2]]) 
+  q.tot <- ncol(X)                # número of parámetros
+  n <- nrow(X)                    # número of datos
+  X1 <- rbind(X,rS)               # matriz de diseño aumentada
+  y1 <- c(y,rep(0,q.tot))         # datos de y aumentado
+  b<-lm(y1~X1-1)                  # modelo ajustado
+  trA<-sum(influence(b)$hat[1:n]) # tr(A)
+  norm<-sum((y-fitted(b)[1:n])^2) # RSS
+  list(model=b,gcv=norm*n/(n-trA)^2,sp=sp)
+}
+```
+
+La función anterior (fit.am) queda en función del parámetro de penalización (sp), por lo que el siguiente paso es identificar cuál es el mejor valor de lambda (sp) para obtener un modelo que mejor se ajuste a los datos. Para la selección del mejor lambda se utiliza validación cruzada. 
+
+```{r,echo=TRUE}
+sp<-c(0,0)                           # inicia el vector con los dos parametros de penalizacion 
+for (i in 1:30) for (j in 1:30)      # bucle sobre sp grid
+{ sp[1]<-1e-5*2^(i-1);sp[2]<-1e-5*2^(j-1) # s.p.s
+  b<-fit.am(Volumen,am0$X,am0$S,sp)  # ajuste utilizando smooth splines
+  if (i+j==2) best<-b else                # almacena el primer modelo
+  if (b$gcv<best$gcv) best<-b             # almacena el mejor modelo
+}
+```
+
+Una vez que ya se dispone del mejor modelo se pinta la nube de puntos con la recta ajustada obtenida.
+
+```{r}
+#Gráficas
+#Ajustados y observados
+plot(fitted(best$model)[1:31],xlab='Índices', ylab='Volúmenes', main='Gráfica 7:Volúmenes')
+points(Volumen,col='RED')
+
+# Ajustados versus observados
+plot(fitted(best$model)[1:31],Volumen,
+     ylab="Volumen ajustado",xlab="Volumen observado", pch=16, main='Gráfica 8:Ajustados vs Observados')
+abline(0,1,col=2)
+```
+
+En la gráfica 7 en la cual se pintan los valores de volumen con los ajustados se observa que no hay un solapamiento excesivo entre unos valores y otros. Para verlo de una forma más clara se realiza el gráfico 8 en donde se enfrenta el volumen ajustado con el observado y se aprecia que hay una relación lineal positiva. Lo cual parece indicar que la relación entre las covariable altura y circunferencia del tronco del cerezo influyen sobre el volumen de los mismos.
+
+
+```{r, echo=TRUE}
+summary(best$model)
+```
+
+Para finalizar simplemente comentar que el $R^2$ es bastante alto, de 0.9927, lo  cual indica que el modelo obtenido es bastante bueno o dicho de otra manera se ajusta muy bien a los datos.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

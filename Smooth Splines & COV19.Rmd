@@ -1,0 +1,382 @@
+---
+title: "P5 MAS"
+author: "Irene Extremera Serrano"
+date: "20/5/2020"
+output: word_document
+---
+<!-- ```{r global_options, include=FALSE, message=FALSE,fig.align="center"} -->
+<!--  knitr::opts_chunk$set(warning=FALSE) -->
+<!-- ``` -->
+
+ <!-- fig.width=10,fig.height=3 -->
+ 
+<!-- warning=FALSE, error=FALSE -->
+
+```{r, results='hide'}
+library(nlme)
+library(mgcv)
+library(readxl)
+library(glmulti)
+library(boot)
+library(rJava)
+```
+
+En el archivo COVID19CV.xls se encuentra la información recopilada sobre la expansión del COVID-19 en la Comunidad Valenciana. En concreto se contiene el número de casos confirmados, las hospitalizaciones, los ingresos en UCI y fallecidos, por la enfermedad, en el periodo 17 de marzo-29 de marzo. Además, las fechas, se agrupan por semana, y se indica si está localizada en fin de semana, o no. Esta información está disponible en https://icvgva.maps.arcgis.com/apps/opsdashboard/index.html#/77510884a79340d2bdb5ef529ee41368
+
+```{r, results='hide'}
+setwd('D:/Desktop/Remember/Estudios/Educación Formal/Máster/Máster Valencia/Bioestadística/Curso 1/20 3-6Modelización Avanzada/Modelos Aditivos y Suavizado/Tareas/Tarea 5')
+COVID19CV <- read_excel("D:/Desktop/Remember/Estudios/Educación Formal/Máster/Máster Valencia/Bioestadística/Curso 1/20 3-6Modelización Avanzada/Modelos Aditivos y Suavizado/Tareas/Tarea 5/COVID19CV.xls")
+```
+
+# Apartado 1 Descriptiva
+
+Lo primero que va a realizarse va a ser una descriptiva por semanas de la base de datos. Sin embargo se comenzará observando las variables de la base de datos.
+
+```{r, results='hide'}
+str(COVID19CV)
+```
+
+Se observa que semana y finde son factores tomando el valor de 1 para la primera semana y 2 para la segunda, y en el caso de finde 0 para durante la semana y 1 para los fines de semana.
+Aparte, la primera variable actúa como índice, por lo que va a eliminarse para evitar posibles problemas futuros.
+
+```{r}
+COVID19CV <- COVID19CV[,-1] 
+attach(COVID19CV)
+```
+
+A continuación se procederá a realizar la descriptiva por semanas.
+
+```{r}
+#Categóricas y cuantitativas
+#Semana
+par(mfrow=c(2,2))
+boxplot(Casos~semana,main='Boxplot 1:Casos', horizontal = TRUE)
+boxplot(Muertes~semana,main='Boxplot 2:Muertes', horizontal = TRUE)
+boxplot(UCI~semana,main='Boxplot 3:UCI', horizontal = TRUE)
+boxplot(Hospitalizaciones~semana,main='Boxplot 4:Hospitalizaciones', horizontal = TRUE)
+```
+
+Tras el análisis descriptivo mediante boxplots se puede apreciar que hay una diferencia marcada entre la primera semana y la segunda, en donde el número de casos, hospitalizaciones, UCI y muertes en la primera semana es bastante menor con respecto al de la segunda semana. Por lo que viendo esto se podría decir que semana debería incluirse como variable explicativa.
+
+Sin embargo, para poder extraer más información se procederá a ver cuál es el comportamiento de unas variables con respecto a otras y ver cuál es la correlación que existe entre ellas.
+
+```{r}
+pairs(COVID19CV)
+cor(COVID19CV)
+```
+
+A la vista de lo obtenido con el gráfico pairs, la variable respuesta muertes podría decirse que se relaciona linealmente con UCI y hospitalizaciones, además de que entre ellas (UCI y hospitalizaciones) también parece haber cierta relación lineal. Aparte, casos parece tener una ligera relación exponencial con todas.
+
+Para completar lo obtenido con pairs, en la tabla de correlaciones se aprecia que semana se correlaciona estrechamente con otras variables explicativas como UCI, muertes, hospitalizaciones y casos. Entre las otras variables también hay correlaciones pero no tan altas como las que presenta semana, por lo tanto tal vez habría que considerar el no incluirla en el modelo para evitar posibles problemas de colinealidad. Sin embargo, podría considerarse el incluirla pero transformada con el logaritmo para evitar esa posible colinealidad.
+
+# Apartado 2
+
+La variable respuesta a considerar es muertes la cual se distribuye como una $Pois~(\lambda)$ ya que son datos de conteo.
+Primero se considerará un modelo lineal generalizado en donde se incluirán las variables explicativas hospitalizaciones y UCI y posteriormente solo un modelo con UCI. De ambos modelos se seleccionará el que mejor explique el número de fallecimientos.
+
+Cabe añadir que el link utilizado será identity debido a que se han probado el resto de links y es con este con el que se consigue un mejor ajuste.
+
+```{r, warning=FALSE}
+modelo <- glm(Muertes~Hospitalizaciones*UCI, family = poisson(link = 'identity'))
+summary(modelo)
+par(mfrow=c(2,2))
+
+#Residuos
+plot(modelo)
+```
+
+En el modelo con la interacción todo sale significativo a excepción de la interacción, el AIC es de 96.92.
+Al fijarse en los gráficos de los residuos se aprecia que en los residuos escalados la hipótesis de homocedasticidad no parece cumplirse mientras que el gráfico QQ tampoco parece  muy bueno.
+
+Por lo tanto se opta por ver cuál sería el mejor modelo propuesto por step().
+
+```{r}
+#Mejor modelo
+step(modelo)
+```
+
+El mejor modelo propuesto por step es el aditivo sin interacción, con un AIC ligeramente menor de 96.56.
+
+```{r}
+modelo_step <- glm(Muertes~Hospitalizaciones+UCI, family = poisson(link='identity'))
+summary(modelo_step)
+par(mfrow=c(2,2))
+
+#Residuos
+plot(modelo_step)
+```
+
+Ahora todos los coeficientes salen significativos y los residuos deviance están en su mayoría entre 2 y -2. En el caso de los residuos se aprecia que se ha mejorado la homocedasticidad, sin embargo la normalidad parece haber empeorado.
+
+```{r}
+#Validación de los modelos
+shapiro.test(residuals(modelo_step, type='deviance'))
+
+grupos <- cut(modelo_step$fitted.values, quantile(modelo_step$fitted.values, (0:4)/4))
+lawstat::levene.test(residuals(modelo_step, type='deviance'), grupos)
+```
+
+Sin embargo, al pasarle el test de normalidad y homocedasticidad se comprueba que los residuos deviance son normales y además homocedásticos.
+
+Una vez validado el modelo anterior, se procede a compararlo con el modelo propuesto en el que muertes solo es explicada por la variable UCI.
+
+```{r}
+modelo_uci <- glm(Muertes~UCI, family = poisson(link='identity'))
+summary(modelo_uci)
+par(mfrow=c(2,2))
+
+#Residuos
+plot(modelo_uci)
+```
+
+En este modelo los coeficientes también salen significativos solo que el AIC es más alto, de 107.52. Con respecto a los residuos ocurre igual que el anterior, parece que se comporta bien en homocedasticidad pero el gráfico QQ no se ajusta muy bien a una normal. Para ello se realizará una valoración de los residuos.
+
+```{r}
+#Validación de los modelos
+shapiro.test(residuals(modelo_uci, type='deviance'))
+
+grupos <- cut(modelo_uci$fitted.values, quantile(modelo_uci$fitted.values, (0:4)/4))
+lawstat::levene.test(residuals(modelo_uci, type='deviance'), grupos)
+```
+
+Se observa que tanto la hipótesis de normalidad como la de homocedasticidad se cumple, con un p valor de 0.4388 en normalidad y de 0.8483 en el test de homocedasticidad.
+
+```{r}
+#AIC
+modelo_step$aic
+modelo_uci$aic
+
+#Comparación de modelos
+pchisq(abs(modelo_step$deviance-modelo_uci$deviance), abs(modelo_step$df.residual-modelo_uci$df.residual),lower.tail = FALSE)
+
+#Deviance explicada
+round(100-(modelo_step$deviance/modelo_step$null.deviance)*100,2)
+round(100-(modelo_uci$deviance/mod_setp_suav$null.deviance)*100,2)
+```
+
+El modelo con mejor AIC es el correspondiente al que incluye hospitalizaciones (96.56 frente a 107.52) además de que al pasar el test $X^2$ se confirma que hay una diferencia entre los modelos.
+Para confirmar cuál de los dos es mejor para explicar los casos de muertes se observará cuál de los dos es mejor realizando predicciones.
+
+```{r}
+#Capacidad predictiva
+cv_step <- cv.glm(COVID19CV, modelo_step)
+cv_uci <- cv.glm(COVID19CV, modelo_uci)
+
+cv_step$delta
+cv_uci$delta
+```
+
+El error de predicción es mucho mayor en el modelo de uci (96.46 frente a 74.80) y además al haber confirmado anteriormente de que hay diferencias entre ambos modelos el mejor modelo de ambos será aquel que incluye hospitalizaciones que además de predecir mejor tiene un menor AIC.
+
+```{r}
+plot( Muertes,modelo_step$fitted.values, main='Gráfico 1: Ajustados vs Observados', ylab='Valores Ajustados')
+abline(0,1)
+```
+
+Se aprecia en el gráfico 1 que los valores predichos y los valores observados se ajustan bastante bien con el modelo obtenido.
+
+
+# Apartado 3
+
+A contiuación realizaré un suavizado de ambas covariables para ver si hay diferencias con respecto al modelo anterior. 
+El número de nodos usado es 3 en cada función de suavizado debido a que solo se dispone de 13 datos.
+Aparte, el link usado es el identity ya que usando el link logarítmico se conseguía un mayor ajuste a los datos pero también un mayor error de predicción y las curvas de suavizado salían ligeramente más retorcidas en comparación con el identity.
+
+```{r}
+mod_setp_suav <- gam(Muertes~ s(UCI,k=3,bs='cr')+s(Hospitalizaciones,k=3,bs='cr'), family = poisson(link='identity'))
+summary(mod_setp_suav)
+
+#Función ajustada y residuos estándar puntuales
+par(mfrow=c(1,2))
+plot(mod_setp_suav)
+
+#Residuos
+par(mfrow=c(2,2))
+gam.check(mod_setp_suav)
+```
+
+Se aprecia que ambos coeficientes y el intercept salen significativos además de que el 70.4% de la deviance queda explicada por el modelo.
+Además, los edf salen de 1.543 y 1.427 lo cual indica que es recomendable el suavizado de las variables.
+
+Las funciones ajustadas de UCI y hospitalizaciones se ven bastante suavizadas e ilustran que en ambas, a medida que aumenta el número de hospitalizaciones e ingresos en UCI también lo hace el número de fallecimientos por coronavirus.
+
+Sin embargo, la normalidad en los residuos en el gráfico QQ parece no ser muy buena, aparte de que en el histograma parece que tienen forma de gamma, aparte la homocedasticidad parece que deja que desear aunque los ajustados y observados parece que se ajustan bastante bien.
+
+Para poder validar el modelo de forma más concreta se le aplica un shapiro test y un test de levene y así testar normalidad y heterocedasticidad.
+
+```{r}
+#Validación de los modelos
+shapiro.test(residuals(mod_setp_suav, type='deviance'))
+
+grupos <- cut(mod_setp_suav$fitted.values, quantile(mod_setp_suav$fitted.values, (0:3)/3))
+lawstat::levene.test(residuals(mod_setp_suav, type='deviance'), grupos)
+```
+
+Y sus residuos deviance pasan las hipótesis de normalidad (0.7852) y homocedasticidad (0.3191).
+Una vez comprobado que el modelo es válido se compara con el modelo obtenido anteriormente en el apartado dos sin suavizado.
+
+En este caso solo se comprobará si hay diferencias significativas entre ambos modelos, se usará la cantidad de deviance explicada y la capacidad predictiva de cada uno para la selección del mejor modelo.
+
+```{r}
+1-pchisq(modelo_step$deviance - mod_setp_suav$deviance, modelo_step$df.residual- mod_setp_suav$df.residual)
+```
+
+El pvalor es de 0.06 lo cual queda dentro del intervalo al 95% indicando así que las diferencias entre ambos modelos no son significativas por lo que se espera que las diferencias entre ambos no serán muy marcadas.
+
+```{r}
+#Deviance explicada
+round(100-(mod_setp_suav$deviance/mod_setp_suav$null.deviance)*100,2)
+round(100-(modelo_step$deviance/modelo_step$null.deviance)*100,2)
+```
+
+La cantidad de deviance explicada por el modelos con suavizado es ligeramente mayor también, de 70.2% frente a 66.3%.
+
+
+```{r}
+su_cv <- cv.glm(COVID19CV,mod_setp_suav)
+su_cv$delta
+cv_step$delta
+```
+
+Con respecto al error de predicción se comprueba que es mayor en el modelo de suavizado, de 96.10 en contraste con 74.80 del no suavizado.
+
+Aumentando el número de nodos produce también un aumento en el error de suavizado, esto es debido a que el modelo de suavizado se ajusta muy bien a los datos obtenidos en detrimento de su capacidad predictiva.
+
+En este caso el modelo a seleccionar será el que se ajuste mejor a las necesidades en función de: que explique mejor los datos o que genere mejores predicciones. En caso de querer que el modelo se ajuste muy bien a los datos, entonces se optaría por el modelo con suavizado, en caso de querer una buena capacidad predictivia, se optaría por el modelo sin suavizar.
+Aun así, en caso de decantarse por uno optaría por el que no incluye suavizado ya que no se diferencia mucho del otro en deviance explicada y además predice mejor.
+
+Cabe mencionar que tras haber observado en la descriptiva la correlación entre hospitalizaciones y UCI se planteo un modelo que incluía a ambas en una misma función de suavizado con un k=10. De esta forma se consigió explicar hasta un 88.4% de deviance y un $R^2$ ajustado del 70%, el AIC de 88.00, una deviance explicada de 88.45 y un edf superior a 4. Sin embargo, el error de predicción era bastante grande, de 98.90593 y no pasaba la hipótesis de homocedasticidad (0.02). Por lo que se podría plantear realizar el mismo modelo pero con una distribución binomial negativa para evitar el problema de sobredispersión propio de la poisson.
+En k=5 es el límite para que se pase el test de homocedasticidad para este modelo ajustando con una distribución Poisson (independientemente del link que se use los resultados son muy similares a los obtenidos con los modelos anteriores).
+
+# APARTADO 4
+
+A contiuación se generará un modelo en el cual solo se suaviza la variable hospitalizaciones.
+En este modelo gam se mantiene el link identity debido a que anteriormente se ha probado con el logarítmico y los valores de $R^2$ (0.48), AIC (96.8), deviance explicada (68.1%) y error de predicción (96.8) eran ligeramente peores en comparación a los obtenidos por identity.
+
+```{r}
+mod_sh <- gam(Muertes~ s(Hospitalizaciones,k=3)+UCI, family = poisson(link = 'identity'))
+summary(mod_sh)
+
+#Función ajustada y residuos estandarizados
+plot(mod_sh)
+
+#Residuos
+par(mfrow=c(2,2))
+gam.check(mod_sh)
+```
+
+Ambos coeficientes son significativos aunque el intercepto parece que no termina de serlo (0.09). El edf correspondiente es de 1.61 lo cual indica que la varaible hospitalizaciones es conveniente suavizarla.
+
+La gráfica suavizada no muestra un comportamiento distinto al obtenido en la anterior, aquí el número de hospitalizaciones también aumenta con el número de muertes y además no presenta fluctuaciones que puedan indicar alguna anomalía.
+
+Con respecto a los residuos no parece que haya habido un cambio sustancial de lo obtenido anteriormente a lo obtenido ahora, parece que la normalidad y la homocedasticidad son pasables. A continuación se procederá a la validación de los residuos deviance.
+
+```{r}
+#Validación de los modelos
+shapiro.test(residuals(mod_sh, type='deviance'))
+
+grupos <- cut(mod_sh$fitted.values, quantile(mod_sh$fitted.values, (0:3)/3))
+lawstat::levene.test(residuals(mod_sh, type='deviance'), grupos)
+```
+ 
+Efectivamente los residuos cumplen las hipótesis de normalidad (0.56) y de homocedasticidad (0.17).
+Por lo tanto puede procederse a comparar ambos modelos propuestos, el que solo suaviza hospitalizaciones y el que incluye ambas variables suavizadas. Se compararán su AIC, $R^2$ ajustado, la deviance explicada y su capacidad predictiva.
+
+```{r}
+1-pchisq( mod_sh$deviance-mod_setp_suav$deviance, mod_sh$df.residual-mod_setp_suav$df.residual)
+```
+
+Parece que con un p valor de 0.076 no hay diferencias significativas entre ambos modelos, sin embargo, se queda muy en el límite.
+
+```{r}
+mod_setp_suav$aic
+mod_sh$aic
+```
+
+```{r}
+#Deviance explicada
+round(100-(mod_setp_suav$deviance/mod_setp_suav$null.deviance)*100,2)
+round(100-(mod_sh$deviance/mod_sh$null.deviance)*100,2)
+```
+
+```{r}
+suh <- cv.glm(COVID19CV,mod_sh)
+su_cv$delta
+suh$delta
+```
+
+Los $R^2$ obtenidos anteriormente son de 0.52 para el que suaviza ambas variables y de 0.50 el que incluye únicamente la suavización de hospitalizaciones.
+
+Aparte, se aprecia que ambos modelos apenas difieren en AIC (para el doble suavizado de 95.01 frente a 95.67) y en porcentaje de deviance explicada (70.39 frente al suavizado de hospitalizaciones 68.77). Además, el error de predicción tampoco es muy dispar aunque el modelo que solo incluye hospitalizaciones posee un error menor, de 74.57 frente a 96.10. 
+Dados los resultados en caso de tener que seleccionar un modelo de entre ambos sería el que solo suaviza hospitalizaciones debido a que además de tener un error menor apenas difiere en AIC y en deviance explicada.
+
+Aparte, también se probó a realiza un modelo que suavizaba UCIs y hospitalizaciones quedaba de forma paramétrica y se conseguía todos los coeficientes significativos, un mejor error de predicción (73.59), AIC (95.42), $R^2$ (0.52) y una deviance explicada (69.1%). Por lo que este modelo sería preferible en comparación al definitivo obtenido en el ejercicio que solo suaviza hospitalizaciones .
+
+# APARTADO 5
+
+En base al modelo anterior, se introduce la variable finde como factor aleatorio, por lo que el modelo con el que se va a trabajar es un GAMM.
+
+En este caso el link que se utiliza es el logarítimico ya que los valores de AIC y BIC son mucho mejores en comparación al identity (AIC de 100.04 y de BIC de 102.86), además de que salen más coeficientes significativos y los valores de la desviación estandar son menores.
+
+```{r}
+COVID19CV$finde <- as.factor(COVID19CV$finde)
+gam.aleatorio <- gamm(Muertes ~ s(Hospitalizaciones) + UCI, data=COVID19CV, random=list(finde=~1), family=poisson)
+summary(gam.aleatorio[[1]])
+summary(gam.aleatorio[[2]])
+```
+
+Con este modelo se obtiene que los coeficientes que salen significativos son el intercepto y las hospitalizaciones.
+La desviación estandar del intercepto es muy cercana a 0 (0.15) y la del $\epsilon$ es 1 lo cual indica que la varianza no es muy grande por lo que el modelo está bastante bien. Además, hay que ver que los valores de AIC y el BIC son muy pequeños 23.1 y de 25.9 respectivamente, mientras que el $R^2$ ajustado es de 0.60. 
+
+```{r}
+plot(gam.aleatorio$gam)
+```
+
+En el gráfico anterior se observa que el número de fallecimientos aumenta a medida que lo hacen las hospitalizaciones, se observa que la linea está bastante suavizada por lo que no parece haber ningún tipo de problema.
+
+```{r}
+plot(Muertes,gam.aleatorio$gam$fitted.values, main = 'Gráfica 2: Valores ajustados VS Observados',ylab='Valores Ajustados')
+abline(0,1)
+```
+
+En el gráfico 2 se observa que los valores observados y ajustados se adaptan mucho mejor que los anteriores modelos a la recta 0,1 lo cual es un indicativo de que el modelo es bueno.
+
+# APARTADO 6
+
+En este modelo se incluirá el factor finde como factor fijo y se hará uso del link logarítmico por lo expuesto anteriormente.
+
+```{r}
+gam.fijo = gamm(Muertes ~ s(Hospitalizaciones) + UCI + finde, data=COVID19CV, family=poisson)
+summary(gam.fijo[[1]])
+summary(gam.fijo[[2]])
+```
+
+En este modelo los valores de AIC y BIC son mucho más bajos, de 18.93 y de 21.75 con un $R^2$ ajustado de 0.74. El edf tiene un valor de 3.22 por lo que efectivamente la variable ha de suavizarse. Además de que los coeficientes que salen significativos son el intercepto, el efecto fijo fin de semana (al límite con un p valor de 0.059) y la covariable suavizada hospitalizaciones.
+
+```{r}
+plot(gam.fijo$gam)
+```
+
+En comparación al gráfico del ejercicio 5 este está más suavizado (entre 100 y 200 parece que había un poco de ruido en la gráfica) y tampoco presenta ningún tipo de ondulación extraña, por lo que el modelo es bastante bueno.
+
+A continuación, para validar el modelo se realizará un gráfico de valores ajustados frente a observados.
+
+```{r}
+plot(Muertes,gam.fijo$gam$fitted.values,main='Gráfico 3: Ajustados VS Observados',ylab='Valores Ajustados')
+abline(0,1)
+```
+
+El gráfico 3 confirma que los valores predichos frente a los observados se ajustan mejor a la recta 0,1 ya que se encuentran mucho más cerca de esta.
+
+Por lo tanto, a la vista de que este último modelo presenta un AIC y un BIC menores y un gráfico de valores ajustados y observados mejor sería conveniente introducir la variable explicativa finde como efecto fijo y no como efecto aleatorio.
+
+De modo que el modelo definitivo sería el siguiente:
+
+$\lambda=\beta_0+f(Hosp_i)+\beta_1UCI_i+Finde_i$
+
+Como propuesta de futuro, lo idóneo sería plantear un modelo GAMM pero sin incluir la variable UCIs, ya que no salía significativa. Este modelo presenta un AIC (16.97), BIC (12.23) y $R^2$ (0.78) mejores, aparte de que todas las variables salen significativas.
+
+De modo que el modelo quedaría de la siguiente forma:
+
+$\lambda=\beta_0+f(Hosp_i)+\beta_1Finde_i$
+

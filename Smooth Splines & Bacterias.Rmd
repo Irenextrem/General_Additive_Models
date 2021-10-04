@@ -1,0 +1,538 @@
+---
+title: "P4 MAS Microbiota  Intestinal"
+author: "Irene Extremera Serrano"
+date: "12/5/2020"
+output: word_document
+---
+
+La base de datos con la que se va a trabajar consta de 8 variables, 7 corresponden a variables cuantitativas continuas que hacen referencia a la riqueza relativa de varias especies de bacterias y la otra cuantitativa discreta y corresponde al tiempo.
+La variable respuesta será cada una de las series temporales de la riqueza relativa expresadas como $log(X_t+_1)-log(X_t)$.
+
+```{r}
+library(nlme)
+library(mgcv)
+library(readxl)
+setwd('D:/Desktop/Remember/Estudios/Educación Formal/Máster/Máster Valencia/Bioestadística/Curso 1/20 3-6Modelización Avanzada/Modelos Aditivos y Suavizado/Tareas/Tarea 4')
+IBS <- read_excel("D:/Desktop/Remember/Estudios/Educación Formal/Máster/Máster Valencia/Bioestadística/Curso 1/20 3-6Modelización Avanzada/Modelos Aditivos y Suavizado/Tareas/Tarea 4/IBS.xls")
+
+```
+
+Primero se comienza con una descriptiva para ver posibles relaciones entre las variables.
+
+```{r}
+# Descriptiva
+plot(IBS$Tiempo,IBS$`Porphyromonadaceae (X1)`,ylim=c(0,0.5),type = 'l', main='Gráfico 1= Riqueza bacteriana')
+lines(IBS$Tiempo,IBS$`uc_Firmicutes (X2)`,col='red')
+lines(IBS$Tiempo,IBS$`Rikenellaceae (X3)`,col='blue')
+lines(IBS$Tiempo,IBS$`Ruminococcaceae (X4)`,col='brown')
+lines(IBS$Tiempo,IBS$`uc_Clostridiales (X5)`,col='green')
+lines(IBS$Tiempo,IBS$`uc_Bacteria (X6)`,col='pink')
+lines(IBS$Tiempo,IBS$`Others (X7)`,col='yellow')
+
+cor(IBS)
+```
+
+A simple vista en la gráfica 1 parece que hay una relación inversa entre la categoría otros y la categoría rikenellaceae en donde cuando aumenta una lo hará la otra. Para el resto no parece haber una relación tan marcada y no tienen cambios tan bruscos.
+Con respecto a la correlación entre variables se aprecia que hay una correlación bastante alta entre otros y bacteria (-0.81952874 ) y rikenellaceae con otros (-0.7235513).
+
+Como va a trabajarse con la serie temporal, se realizará un algoritmo para el cálculo de las distintas series y además ver si hay algún tipo de correlación entre variables respuesta.
+
+```{r}
+#Creo una función que calcule el incremento de riqueza de un día para otro de una colonia en concreto
+
+lag.inc <- function(a)
+{ n<-length(a)
+b<-c()
+for (i in 0:29){ b[i] <- log(a[i+1])-log(a[i])}
+b
+}
+
+#Calculo los incrementos de cada población
+ix1 <- lag.inc(IBS$`Porphyromonadaceae (X1)`)
+ix2 <- lag.inc(IBS$`uc_Firmicutes (X2)`)
+ix3 <- lag.inc(IBS$`Rikenellaceae (X3)`)
+ix4 <- lag.inc(IBS$`Ruminococcaceae (X4)`)
+ix5 <- lag.inc(IBS$`uc_Clostridiales (X5)`)
+ix6 <- lag.inc(IBS$`uc_Bacteria (X6)`)
+ix7 <- lag.inc(IBS$`Others (X7)`)
+
+#Correlación
+X<- matrix(c(ix1,ix2,ix3,ix4,ix5,ix6,ix7), ncol=7,nrow=29)
+cor(X)
+```
+
+Se aprecia que hay una ligera correlación entre la serie temporal de riqueza de rikenellaceae con otros (-0.69626203), por lo que tal vez habría que considerar el incluirla en el modelo. Además, también se aprecia una ligera correlación entre otros y bacterias (-0.45669257).
+
+Para ver cómo se comportan estas series temporales se realizará el gráfico de a continuación.
+
+```{r}
+plot(IBS$Tiempo[-30],ix1,type = 'l',ylim=c(-2,1.1), main='Gráfico 2= Series Temporales Bacterianas',xlab='Tiempo',ylab='Incremento Xt')
+lines(IBS$Tiempo[-30],ix2,col='red')
+lines(IBS$Tiempo[-30],ix3,col='blue')
+lines(IBS$Tiempo[-30],ix4,col='brown')
+lines(IBS$Tiempo[-30],ix5,col='green')
+lines(IBS$Tiempo[-30],ix6,col='pink')
+lines(IBS$Tiempo[-30],ix7,col='yellow')
+```
+
+En el gráfico dos en rojo aparece representada la segunda colonia de bacterias la cual presenta grandes diferencias de un tiempo a otro en contraste con el resto cuya variación no es tan marcada.
+
+
+```{r}
+plot(density(ix1),type = 'l',ylim=c(0,3),xlim=c(-3,2), main='Gráfico 3= Densidad bacteriana')
+lines(density(ix2),col='red')
+lines(density(ix3),col='blue')
+lines(density(ix4),col='brown')
+lines(density(ix5),col='green')
+lines(density(ix6),col='pink')
+lines(density(ix7),col='yellow')
+```
+Los valores de las variables respuesta están centrados en 0 y oscilan entre -2 y 1 y tienen una forma aproximadamente como una normal, por lo que aplicando el teorema central del límite podría pensarse que se distribuyen aproximadamente como una normal.
+
+Los modelos que van a realizarse serán modelos GAM (modelos aditivos generalizados), debido a que no se sabe cúal es la relación entre la variable respuesta y las covariables. La variable respuesta será la serie temporal de cada una de las poblaciones y las variables explicativas la riqueza de individuos de esas poblaciones y el tiempo.
+
+Se partirá de un modelo del tipo propuesto en las referencias[1,2] :
+$\triangle B^1_t = b_e+f_e(B^1_t)+g_e(B^2_t)+...+h_e(B^7_t)+e_t$
+
+En donde $\triangle B^1_t=log(B^1_t_+_1)-log(B^1_t)$, los distintos $B^p_t$ son los valores de las dintintas colonias p a tiempo t, las funciones que compañan a las disintas $B^p_t$ son funciones de suavizado ($f_e,g_e,h_e...$), $b_e$ el intercepto y $e_t$ el ruido.
+
+A continuación se descartarán las variables que no han salido significativas y se procederá a la mejora de los modelos ya sea: replanteando las relaciones entre variables en base a la descriptiva anterior, cambiando la base de splines, eliminando los interceps de los modelos que no salgan significativos, emparejando variables en una misma función de splines o aumentando el número de nodos.
+
+A lo largo de la práctica se explicará cómo ha sido el proceso de selección y generación de los distintos modelos, los cuales han sido seleccionados mediante AIC, GCV y $R^2$ ajustado y finalmente se mostrará el valor para estos coeficientes de los modelos finales además de su expresión analítica.
+
+Para comenzar se realizará será igualar las distancias de las variables explicativas con las variables respuesta, pues al realizar el incremento se pierde el útlimo dato.
+
+```{r}
+porphy <- IBS$`Porphyromonadaceae (X1)`[-30]
+firmi <- IBS$`uc_Firmicutes (X2)`[-30]
+riken <- IBS$`Rikenellaceae (X3)`[-30]
+rumin <- IBS$`Ruminococcaceae (X4)`[-30]
+clost <- IBS$`uc_Clostridiales (X5)`[-30]
+bac <- IBS$`uc_Bacteria (X6)`[-30]
+ot <- IBS$`Others (X7)`[-30]
+```
+
+Como se propone en los artículos de referencia un modelo compuesto por funciones de suavizado, se partirá del modelo saturado para identificar cuáles de aquellas variables son significativas y poco a poco ir mejorando el modelo. Como únicamente se dispone de 30 datos cada función de suavizado dispondrá de 3 nodos.
+
+```{r}
+#Todas las variables suavizadas k=3
+mix1<-gam(ix1 ~ s(porphy,k=3)+s(firmi,k=3)+s(riken,k=3)+s(rumin,k=3)+s(clost,k=3)+s(bac,k=3)+s(ot,k=3), family=gaussian(link=identity))
+mix2<-gam(ix2 ~ s(porphy,k=3)+s(firmi,k=3)+s(riken,k=3)+s(rumin,k=3)+s(clost,k=3)+s(bac,k=3)+s(ot,k=3), family=gaussian(link=identity))
+mix3<-gam(ix3 ~ s(porphy,k=3)+s(firmi,k=3)+s(riken,k=3)+s(rumin,k=3)+s(clost,k=3)+s(bac,k=3)+s(ot,k=3), family=gaussian(link=identity))
+mix4<-gam(ix4 ~ s(porphy,k=3)+s(firmi,k=3)+s(riken,k=3)+s(rumin,k=3)+s(clost,k=3)+s(bac,k=3)+s(ot,k=3), family=gaussian(link=identity))
+mix5<-gam(ix5 ~ s(porphy,k=3)+s(firmi,k=3)+s(riken,k=3)+s(rumin,k=3)+s(clost,k=3)+s(bac,k=3)+s(ot,k=3), family=gaussian(link=identity))
+mix6<-gam(ix6 ~ s(porphy,k=3)+s(firmi,k=3)+s(riken,k=3)+s(rumin,k=3)+s(clost,k=3)+s(bac,k=3)+s(ot,k=3), family=gaussian(link=identity))
+mix7<-gam(ix7 ~ s(porphy,k=3)+s(firmi,k=3)+s(riken,k=3)+s(rumin,k=3)+s(clost,k=3)+s(bac,k=3)+s(ot,k=3), family=gaussian(link=identity))
+```
+
+En el modelo de porphyromonadaceae las colonias que salen significativas son la porpia colonia y bacteria, por lo que ahora en adelante se trabajará con el modelo compuesto por ellas.
+En el caso de firmicutes las colonias más relevantes son porphyromonadaceae y ellas mismas, mientras que en el modelo para rikenellaceae son firmicutes, ellas mismas, ruminococcaceae y bacteria.
+En cuanto al modelo de ruminococcaceae su crecimiento temporal parece solamente depender de la misma colonia, mientras que en el caso de clostridiales es la propia población y bacteria lo que influye en la serie temporal.  
+Para finalizar, el modelo de bacteria muestra que la serie temporal de crecimiento de la colonia depende de la propia colonia y de la colonia firmicutes aparte de que la serie temporal de el último conjunto en el que se agrupan bacterias de distinta índole se ve influenciada por porphyromonadaceae y rikenellaceae.
+
+El siguiente paso es eliminar las variables no significativas de los modelos anteriores.
+
+```{r}
+mix12.0<-gam(ix1 ~ s(porphy,k=3)+s(bac,k=3), family=gaussian(link=identity))
+mix22.0<-gam(ix2 ~ s(porphy,k=3)+s(firmi,k=3), family=gaussian(link=identity))
+mix32.0<-gam(ix3 ~ s(firmi,k=3)+s(riken,k=3)+s(rumin,k=3)+s(bac,k=3),family=gaussian(link=identity))
+mix42.0<-gam(ix4 ~ s(rumin,k=3), family=gaussian(link=identity))
+mix52.0<-gam(ix5 ~ s(clost,k=3)+s(bac,k=3), family=gaussian(link=identity))
+mix62.0<-gam(ix6 ~ s(firmi,k=3)+s(bac,k=3), family=gaussian(link=identity))
+mix72.0<-gam(ix7 ~ s(porphy,k=3)+s(riken,k=3)+s(ot,k=3), family=gaussian(link=identity))
+```
+
+Una vez partiendo de estos modelos se comprueba si ha habido una mejora en cuanto a AIC, GCV, $R^2$ ajustado y la forma de sus residuos y se obtiene lo siguiente:
+
+```{r}
+mix1$aic #AIC
+mix12.0$aic 
+
+mix1$gcv.ubre #GCV
+mix12.0$gcv.ubre 
+
+summary(mix1)[10] #R^2 Ajustado
+summary(mix12.0)[10] 
+```
+
+```{r}
+mix2$aic #AIC
+mix22.0$aic 
+
+mix2$gcv.ubre #GCV
+mix22.0$gcv.ubre 
+
+summary(mix2)[10] #R^2 Ajustado
+summary(mix22.0)[10] 
+```
+
+```{r}
+mix3$aic #AIC
+mix32.0$aic 
+
+mix3$gcv.ubre #GCV
+mix32.0$gcv.ubre 
+
+summary(mix3)[10] #R^2 Ajustado
+summary(mix32.0)[10] 
+```
+
+```{r}
+mix4$aic #AIC
+mix42.0$aic 
+
+mix4$gcv.ubre #GCV
+mix42.0$gcv.ubre 
+
+summary(mix4)[10] #R^2 Ajustado
+summary(mix42.0)[10] 
+```
+
+```{r}
+mix5$aic #AIC
+mix52.0$aic 
+
+mix5$gcv.ubre #GCV
+mix52.0$gcv.ubre 
+
+summary(mix5)[10] #R^2 Ajustado
+summary(mix52.0)[10] 
+```
+
+```{r}
+mix6$aic #AIC
+mix62.0$aic 
+
+mix6$gcv.ubre #GCV
+mix62.0$gcv.ubre 
+
+summary(mix6)[10] #R^2 Ajustado
+summary(mix62.0)[10] 
+```
+
+```{r}
+mix7$aic #AIC
+mix72.0$aic 
+
+mix7$gcv.ubre #GCV
+mix72.0$gcv.ubre 
+
+summary(mix7)[10] #R^2 Ajustado
+summary(mix72.0)[10] 
+```
+
+Tras comparar los AICs, GCV y $R^2$ ajustado del modelo saturado con el que únicamente incluye las variables que han salido significativas se obtiene que los modelos para las series temporales de las colonias: porphyromonadaceae, firmicutes, ruminococcaceae (X4) y clostridiales han mejorado con respecto al saturado. En el modelo perteneciente a la primera, segunda y quinta población los valores de $R^2$ ajustado están entre 0.30 y 0.35, siendo ligeramente menores al modelo saturado pero presentando un menor AIC y GCV con respecto a este. En cuanto a la cuarta población toma un $R^2$ superior al resto (0.5272967) pero sigue siendo ligeramente menor que el del modelo saturado pero el valor del AIC y GCV es mejor, pero estas diferencias en general son muy leves. Por el contrario los modelos de rikenellaceae, bacteria y otros empeoran bastante, se pasan de $R^2$ de entre 0.65 a 0.45 a 0.17 a 0.42.
+
+Hay que notar que los modelos que han empeorado son los correspondientes a las variables que en la descriptiva presentaban una ligera relación lineal: bacteria y otros de -0.819 y rikenellaceae y otras de -0.723551305. 
+
+Esto hace que se planten varias cosas:
+
+- Hay una relación estrecha entre bacteria, otras y rikenellaceae, por lo que tal vez para mejorar el GAM de esta última habría que incluir la variable otras en su modelo y además la serie temporal de otros pues como se vió anteriormente tenían una alta correlación (-0.69626203).
+
+- Con respecto al GAM de bacterias se podría considerar lo mismo, incluir otras y rikenellaceae junto con la serie temporal de otras.
+
+- El modelo de la serie temporal otros probablemente funcione mejor con las variables: bacteria, otros, rikenellaceae junto con la serie temporal perteneciente a rikenellaceae.
+
+
+- La posibilidad de mejorar los modelos en general: cambiando la base de splines, eliminando los interceps de los modelos que no salgan significativos, emparejando variables en una misma función de splines o aumentando el número de nodos.
+
+```{r}
+#Mejorar 3,6 y 7
+mix33.0<-gam(ix3 ~ s(riken,k=3)+s(ot,k=3)+s(bac,k=3)+ix7,family=gaussian(link=identity))
+summary(mix32.0)[10]
+summary(mix33.0)[10]
+
+mix63.0<-gam(ix6 ~ s(ot,k=3)+s(bac,k=3)+s(riken,k=3)+ix7, family=gaussian(link=identity))
+summary(mix62.0)[10]
+summary(mix63.0)[10]
+
+mix73.0<-gam(ix7 ~ s(riken,k=3)+s(ot,k=3)+s(bac,k=3)+ix3, family=gaussian(link=identity))
+summary(mix72.0)[10]
+summary(mix73.0)[10]
+```
+
+Se puede observar que de esta manera para las series temporales pertenecientes a otros, bacteria y rikenellaceae se obtiene una mejora considerable en el $R^2$ ajustado de los modelos GAM con respecto al obtenido anteriormente tomando todos un valor entorno al 0.60-0.65. Cabe mencionar que para rikenellaceae el modelo obtenido ahora presenta un $R^2$ similar al $R^2$ del modelo saturado, por lo que en caso de optar por alguno de los dos se optaría por este último lo cual hace que se gane en grados de libertad.
+
+CAMBIO BASE 
+```{r}
+mix15.0<-gam(ix1 ~ s(porphy,k=3,bs="cr")+s(bac,k=3,bs="cr"), family=gaussian(link=identity))
+mix25.0<-gam(ix2 ~ s(porphy,k=3,bs="cr")+s(firmi,k=3,bs="cr"), family=gaussian(link=identity))
+mix35.0<-gam(ix3 ~ s(riken,k=3,bs="cr")+s(ot,k=3,bs="cr")+s(bac,k=3,bs="cr")+ix7,family=gaussian(link=identity))
+mix45.0<-gam(ix4 ~ s(rumin,k=3,bs="cr"), family=gaussian(link=identity))
+mix55.0<-gam(ix5 ~ s(clost,k=3,bs="cr")+s(bac,k=3,bs="cr"), family=gaussian(link=identity))
+mix65.0<-gam(ix6 ~ s(ot,k=3,bs="cr")+s(bac,k=3,bs="cr")+s(riken,k=3,bs="cr")+ix7, family=gaussian(link=identity))
+mix75.0<-gam(ix7 ~ s(riken,k=3,bs="cr")+s(ot,k=3,bs="cr")+s(bac,k=3,bs="cr")+ix3, family=gaussian(link=identity))
+
+summary(mix15.0)[10]
+summary(mix12.0)[10]
+
+summary(mix25.0)[10]
+summary(mix22.0)[10]
+
+summary(mix35.0)[10]
+summary(mix33.0)[10]
+
+summary(mix45.0)[10]
+summary(mix42.0)[10]
+
+summary(mix55.0)[10]
+summary(mix52.0)[10]
+
+summary(mix65.0)[10]
+summary(mix63.0)[10]
+
+summary(mix75.0)[10]
+summary(mix73.0)[10]
+```
+
+Es ligeramente mejor en algunos casos y en otras ligeramente peor. Pero muy ligeramente. En otros queda igual como en la población 4. No merece la pena cambiar la base de splines.
+
+
+EMPAREJAR FUNCIONES
+```{r}
+mix16.0<-gam(ix1 ~ s(porphy,bac,k=25), family=gaussian(link=identity))
+mix26.0<-gam(ix2 ~ s(porphy,firmi,k=25), family=gaussian(link=identity))
+mix36.0<-gam(ix3 ~ s(riken,ot,bac,k=25)+ix7,family=gaussian(link=identity))
+mix46.0<-gam(ix4 ~ s(rumin,k=25), family=gaussian(link=identity)) 
+mix56.0<-gam(ix5 ~ s(clost,bac,k=25), family=gaussian(link=identity))
+mix66.0<-gam(ix6 ~ s(ot,bac,riken,k=25)+ix7, family=gaussian(link=identity))
+mix76.0<-gam(ix7 ~ s(riken,ot,bac,k=25)+ix3, family=gaussian(link=identity))
+
+summary(mix16.0)[10]
+summary(mix12.0)[10]
+
+summary(mix26.0)[10]
+summary(mix22.0)[10]
+
+summary(mix36.0)[10]
+summary(mix33.0)[10]
+
+summary(mix46.0)[10]
+summary(mix42.0)[10]
+mix46.0$aic
+mix42.0$aic
+mix46.0$gcv.ubre
+mix42.0$gcv.ubre
+
+summary(mix56.0)[10]
+summary(mix52.0)[10]
+
+summary(mix66.0)[10]
+summary(mix63.0)[10]
+
+summary(mix76.0)[10]
+summary(mix73.0)[10]
+```
+Puedo aumentar el número de nodos a 25.
+El único modelo que cambia es el de bacteria -> para de 0.6044046 a  0.6973587 -> trabajo con este
+Variable 4 solo con una ve por lo que solo aumenta los nodos -> NI SE INMUTA, lo mismo para con AIC y GCV -> modelo definitivo con 3 splines.
+
+AUMENTAR NODOS
+```{r}
+mix17.0<-gam(ix1 ~ s(porphy,k=15)+s(bac,k=15), family=gaussian(link=identity))
+mix27.0<-gam(ix2 ~ s(porphy,k=15)+s(firmi,k=15), family=gaussian(link=identity))
+mix37.0<-gam(ix3 ~ s(riken,k=10)+s(ot,k=10)+s(bac,k=10)+ix7,family=gaussian(link=identity))
+mix57.0<-gam(ix5 ~ s(clost,k=15)+s(bac,k=15), family=gaussian(link=identity))
+mix67.0<-gam(ix6 ~ s(ot,bac,riken,k=28)+ix7, family=gaussian(link=identity))
+mix77.0<-gam(ix7 ~ s(riken,k=10)+s(ot,k=10)+s(bac,k=10)+ix3, family=gaussian(link=identity))
+
+summary(mix17.0)[10]
+summary(mix12.0)[10]
+
+summary(mix27.0)[10]
+summary(mix22.0)[10]
+
+summary(mix37.0)[10]
+summary(mix33.0)[10]
+
+summary(mix57.0)[10]
+summary(mix52.0)[10]
+
+summary(mix67.0)[10]
+summary(mix66.0)[10]
+
+summary(mix77.0)[10]
+summary(mix73.0)[10]
+```
+
+En todas el incremento de nodos genera un incremento del $R^2$ a excepción de X1, X2 y X6.
+Variable 4 la dejo con 1 nodo para
+
+ELIMINANDO INTERCEPTS
+```{r}
+mix14.0<-gam(ix1 ~ s(porphy,k=3)+s(bac,k=3)-1, family=gaussian(link=identity))
+mix24.0<-gam(ix2 ~ s(porphy,k=3)+s(firmi,k=3)-1, family=gaussian(link=identity))
+mix34.0<-gam(ix3 ~ s(riken,k=10)+s(ot,k=10)+s(bac,k=10)+ix7-1,family=gaussian(link=identity))
+mix44.0<-gam(ix4 ~ s(rumin,k=1)-1, family=gaussian(link=identity))
+mix54.0<-gam(ix5 ~ s(clost,k=15)+s(bac,k=15)-1, family=gaussian(link=identity))
+mix64.0<-gam(ix6 ~ s(ot,bac,riken,k=25)+ix7-1, family=gaussian(link=identity))
+mix74.0<-gam(ix7 ~ s(riken,k=10)+s(ot,k=10)+s(bac,k=10)+ix3-1, family=gaussian(link=identity))
+
+summary(mix14.0)[10]
+summary(mix12.0)[10]
+
+summary(mix24.0)[10]
+summary(mix22.0)[10]
+
+summary(mix34.0)[10]
+summary(mix33.0)[10]
+
+summary(mix44.0)[10]
+summary(mix42.0)[10]
+
+summary(mix54.0)[10]
+summary(mix52.0)[10]
+
+summary(mix64.0)[10]
+summary(mix66.0)[10]
+
+summary(mix74.0)[10]
+summary(mix73.0)[10]
+```
+
+Hay una mejora general eliminando el intercept.
+
+Mejores modelos:
+```{r}
+# R cuadrado ajustado
+summary(mix14.0)[10]
+summary(mix24.0)[10]
+summary(mix34.0)[10]
+summary(mix44.0)[10]
+summary(mix54.0)[10]
+summary(mix64.0)[10]
+summary(mix74.0)[10]
+
+#AIC
+mix14.0$aic
+mix24.0$aic
+mix34.0$aic
+mix44.0$aic
+mix54.0$aic
+mix64.0$aic
+mix74.0$aic
+
+#GCV
+mix14.0$gcv.ubre
+mix24.0$gcv.ubre
+mix34.0$gcv.ubre
+mix44.0$gcv.ubre
+mix54.0$gcv.ubre
+mix64.0$gcv.ubre
+mix74.0$gcv.ubre
+```
+
+
+(Tabla R^2, AIC Y GCV)
+
+Comentar tabla -> no son buenos modelos
+
+Comparar con artículo AIC, GCV y R^2
+
+```{r}
+# Residuos
+par(mfrow=x(2,2))
+gam.check(mix14.0)
+gam.check(mix24.0)
+gam.check(mix34.0)
+gam.check(mix44.0)
+gam.check(mix54.0)
+gam.check(mix64.0)
+gam.check(mix74.0)
+```
+
+Comentar residuos -> ¿Normales? Con respecto a los residuos, al tener pocos datos es complicado de ver claramente que los residuos se ajusten a la normalidad.
+
+(INTRODUCIR MODELOS DEFINITIVOS PARA CADA UNA)
+
+CONCLUSIÓN -> TAL VEZ SEA NECESARIO TENER EN CONSIDERACIÓN OTRAS VARIABLES O ABARCAR EL PROBLEMA DESDE OTRA PERSPECTIVA
+
+
+```{r}
+
+```
+
+```{r}
+#Cambio la variable explicativa
+IBSl<-log(IBS)
+porphyl <- IBSl$`Porphyromonadaceae (X1)`[-30]
+firmil <- IBSl$`uc_Firmicutes (X2)`[-30]
+rikenl <- IBSl$`Rikenellaceae (X3)`[-30]
+ruminl <- IBSl$`Ruminococcaceae (X4)`[-30]
+clostl <- IBSl$`uc_Clostridiales (X5)`[-30]
+bacl <- IBSl$`uc_Bacteria (X6)`[-30]
+otl <- IBSl$`Others (X7)`[-30]
+```
+
+```{r}
+mix14.0l<-gam(ix1 ~ s(porphyl,k=3)+s(bacl,k=3)-1, family=gaussian(link=identity))
+mix24.0l<-gam(ix2 ~ s(porphyl,k=3)+s(firmil,k=3)-1, family=gaussian(link=identity))
+mix34.0l<-gam(ix3 ~ s(rikenl,k=10)+s(otl,k=10)+s(bac,k=10)+ix7-1,family=gaussian(link=identity))
+mix44.0l<-gam(ix4 ~ s(ruminl,k=1)-1, family=gaussian(link=identity))
+mix54.0l<-gam(ix5 ~ s(clostl,k=15)+s(bacl,k=15)-1, family=gaussian(link=identity))
+mix64.0l<-gam(ix6 ~ s(otl,bacl,rikenl,k=25)+ix7-1, family=gaussian(link=identity))
+mix74.0l<-gam(ix7 ~ s(rikenl,k=10)+s(otl,k=10)+s(bacl,k=10)+ix3-1, family=gaussian(link=identity))
+```
+
+
+```{r}
+# R cuadrado ajustado
+summary(mix14.0l)[10]
+summary(mix24.0l)[10]
+summary(mix34.0l)[10]
+summary(mix44.0l)[10]
+summary(mix54.0l)[10]
+summary(mix64.0l)[10]
+summary(mix74.0l)[10]
+
+#AIC
+mix14.0l$aic
+mix24.0l$aic
+mix34.0l$aic
+mix44.0l$aic
+mix54.0l$aic
+mix64.0l$aic
+mix74.0l$aic
+
+#GCV
+mix14.0l$gcv.ubre
+mix24.0l$gcv.ubre
+mix34.0l$gcv.ubre
+mix44.0l$gcv.ubre
+mix54.0l$gcv.ubre
+mix64.0l$gcv.ubre
+mix74.0l$gcv.ubre
+```
+
+
+```{r}
+# R cuadrado ajustado
+summary(mix14.0)[10]
+summary(mix24.0)[10]
+summary(mix34.0)[10]
+summary(mix44.0)[10]
+summary(mix54.0)[10]
+summary(mix64.0)[10]
+summary(mix74.0)[10]
+
+#AIC
+mix14.0$aic
+mix24.0$aic
+mix34.0$aic
+mix44.0$aic
+mix54.0$aic
+mix64.0$aic
+mix74.0$aic
+
+#GCV
+mix14.0$gcv.ubre
+mix24.0$gcv.ubre
+mix34.0$gcv.ubre
+mix44.0$gcv.ubre
+mix54.0$gcv.ubre
+mix64.0$gcv.ubre
+mix74.0$gcv.ubre
+```
+
+
+

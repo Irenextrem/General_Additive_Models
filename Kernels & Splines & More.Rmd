@@ -1,0 +1,376 @@
+---
+title: "Práctica 2 DEFINITIVA"
+author: "Irene Extremera Serrano"
+date: "15/4/2020"
+output: word_document
+---
+<div style="text-align: justify">
+
+
+<!-- ```{r global_options, include=FALSE, message=FALSE,fig.align="center"} -->
+<!--  knitr::opts_chunk$set(warning=FALSE) -->
+<!-- ``` -->
+
+ <!-- fig.width=13,fig.height=4 -->
+ 
+<!-- warning=FALSE, error=FALSE -->
+
+El objetivo de esta práctica es estimar la prevalencia del normopeso, sobrepeso y obesidad en los años no disponibles en la tabla proporcionada.
+
+Los métodos voy a utilizar van a ser: un ajuste local lineal, cuadrático, por kernels, splines cuadráticos, naturales y smooth splines.
+
+```{r}
+# Librerías a usar
+library(splines)
+library(fANCOVA)
+library(stats)
+
+#Datos que dispongo
+normo <- c(52.9,52.1,51.1,49.7,50.7,48.1)
+sobre<- c(37.1,36.5,36.1,37.0,36.0,36.8)
+obe<- c(10,11.4,12.8,13.3,13.3,15.1)
+años <- c(1993,1995,1997,2001,2003,2005)
+dbn <- data.frame(y= normo, x=años)
+dbs <- data.frame(y=sobre, x=años)
+dbo <- data.frame(y=obe, x=años)
+
+# Años para los cuales quiero predecir.
+limites <- range(años)
+nuevos_puntos <- seq(from =limites[1], to = limites[2], by=1) 
+nuevos_puntos <- data.frame(años = nuevos_puntos)
+```
+
+# Ajuste local lineal.
+
+Primero comenzaré con el ajuste local lienal, para ello haré uso de la función loess.as debido a que: puedo usarlo tanto para el ajuste lineal y cuadrático con el argumento degree, incluye un argumento (criterion) que me permite seleccionar el modelo, en este caso he usado 'aicc' es decir, me quedo con el modelo con un AIC más bajo y con él predigo.
+En esta función no se pueden introducir los nuevos datos en forma de data.frame, sino que hay que hacerlo en forma de vector.
+
+```{r,warning=FALSE, error=FALSE}
+#Predicciones
+pnl<-predict(loess.as(años,normo,degree=1,criterion="aicc"),newdata=1993:2005)
+psl<-predict(loess.as(años,sobre,degree=1,criterion="aicc"),newdata=1993:2005)
+pol<-predict(loess.as(años,obe,degree=1,criterion="aicc"),newdata=1993:2005)
+
+#Comprobación de las proporciones
+pnl+psl+pol
+
+# Representación
+plot(años,normo, main="Gráfica 1:Ajuste local lineal",
+     ylab="Prevalencia (%)",xlab="Tiempo (años)",col=1,ylim=c(9,53),pch=17)
+points(1993:2005,pnl,col=2,pch=2) 
+points(años,sobre,col=3,pch=17)
+points(1993:2005,psl,col=4,pch=2) 
+points(años,obe,col=5,pch=17)
+points(1993:2005,pol,col=6,pch=2)
+legend(c(1993,1995),c(34,15),c("N","S","O"),col=c(2,4,6),pch=2)
+```
+
+En la gráfica 1 se observa las predicciones para los valores de pesos para los años que faltaban. Se puede observar que el valor de personas con normopeso es mucho mayor que las de sobrepeso y el porcentaje de personas con obesidad es con diferencia el menor.
+
+Otra forma de calcular estas predicciones habría sido calculando cuál es mejor modelo cuya suma de cuadrados residual es menor y predecir con ese modelo. Sin embargo, la carga computacional es mucho mayor, al menos para mi ordenador, y por ello me he decantado por este método.
+
+# Ajuste local cuadrático
+
+A continuación realizo el ajuste cuadrático y para ello he usado la misma función que en el caso anterior, pero cambiando el argumento degree=1 por degree=2, lo cual indica que se realiza un ajuste cuadrático en cada ventana de suavizado.
+
+```{r,warning=FALSE,error=FALSE}
+# Predicciones
+pnc<-predict(loess.as(años,normo,degree=2,criterion="aicc"),newdata=1993:2005)
+psc<-predict(loess.as(años,sobre,degree=2,criterion="aicc"),newdata=1993:2005)
+poc<-predict(loess.as(años,obe,degree=2,criterion="aicc"),newdata=1993:2005)
+
+# Comprobación
+pnc+psc+poc
+
+# Representación
+plot(años,normo, main="Gráfica 2: Ajuste local cuadrático",
+     ylab="Prevalencia (%)",xlab="Tiempo (años)",col=1,ylim=c(9,53),pch=17)
+points(1993:2005,pnc,col=2,pch=2) 
+points(años,sobre,col=3,pch=17)
+points(1993:2005,psc,col=4,pch=2) 
+points(años,obe,col=5,pch=17)
+points(1993:2005,poc,col=6,pch=2) 
+legend(c(1993,1995),c(34,15),c("N","S","O"),col=c(2,4,6),pch=2)
+```
+
+Al comparar la gráfica 1 del ajuste lineal con la 2 del ajuste cuadrático observo que se parecen bastante, lo cual me hace abstraer que las predicciones son bastante similares,
+
+# Ajuste kernels
+
+Las siguientes predicciones van a venir de la mano de la función ksmooth la cual posee un argumento n.points en donde indico que necesito que prediga para esos 13 puntos, y como son de 1993:2005 hay un punto por cada año y al ser el ancho de banda constante predice para esos años en concreto.
+
+```{r, warning=FALSE}
+# Modelos
+norm_mod <- ksmooth (años ,normo ,"normal", bandwidth =1.5, n.points = 13) 
+sobre_mod <- ksmooth (años ,sobre ,"normal", bandwidth =1.5, n.points = 13) 
+obe_mod <- ksmooth (años ,obe ,"normal", bandwidth =1.5, n.points = 13) 
+
+# Comprobación de las proporciones
+norm_mod$y+sobre_mod$y+obe_mod$y
+
+# Representación
+plot(años,normo, ylim=c(9,53),col=1,pch=17,ylab='Prevalencia (%)',xlab='Tiempo (Años)',main='Gráfica 3.1: Ajuste Kernels Normal')
+points(norm_mod,col=2,pch=2)
+points(años,sobre,col=3,pch=17)
+points(sobre_mod,col=4,pch=2)
+points(años,obe,col=5,pch=17)
+points(obe_mod,col=6,pch=2)
+legend(c(1993,1995),c(34,15),c("N","S","O"),pch=2,col=c(2,4,6))
+```
+
+```{r, warning=FALSE}
+# Modelos
+norm_box <- ksmooth (años ,normo ,"box", bandwidth =4, n.points = 13) 
+sobre_box <- ksmooth (años ,sobre ,"box", bandwidth =4, n.points = 13) 
+obe_box <- ksmooth (años ,obe ,"box", bandwidth =4, n.points = 13) 
+
+# Comprobación de las proporciones
+norm_box$y+sobre_box$y+obe_box$y
+
+# Representación
+plot(años,normo, ylim=c(9,53),col=1,pch=17,ylab='Prevalencia (%)',xlab='Tiempo (Años)',main='Gráfica 3.2: Ajuste Kernels Box')
+points(norm_box,col=2,pch=2)
+points(años,sobre,col=3,pch=17)
+points(sobre_box,col=4,pch=2)
+points(años,obe,col=5,pch=17)
+points(obe_box,col=6,pch=2)
+legend(c(1993,1995),c(34,15),c("N","S","O"),pch=2,col=c(2,4,6))
+```
+
+Una de las cosas que pueden observarse a simple vista al comparar la gráfica 3 con las dos anteriores es que los valores predichos para los años de los cuales dispongo datos son ligeramente diferentes a estos, cosa que en los dos ajustes anteriores no ocurría. Además, el grado de suavizado es levemente mayor en comparación al alisado local.
+
+Para la obtención de el ancho de banda óptimo he ido probando distintos brandwith hasta que el valor se parecía al valor real en la gráfica ypredecía para todos los números. Con anchos de bandas pequeños la función ksmooth usando el método box no se predice para 13 valores, sin embargo, esto no ocurre usando la opción gaussiana.
+Con respecto a la selección del ancho de badna, una de las opciones para no hacerlo de forma tan rudimentaria sería calculando el ancho de banda que minimizase el RSS o que genere un mejor AIC.
+
+# Spline cúbico
+
+El método spline consiste en ajustar una función polinomial introduciendo restricciones en los puntos de unión (nodos) para ganar en continuidad entre regiones. De esa manera los extremos de las funciones de regiones colindantes se aproximan la una a la otra. Cabe mencionar que el problema de este método es que en los extremos al no tener restricciones la extrapolación de los datos puede no ser muy buena. Sin embargo, las predicciones que voy a realizar no se encuentran en los extremos.
+
+Con respecto a la elección del número de nodos, al tener un conjunto de datos bastante bajo (n=6) voy a trabajar solamente con un nodo.
+
+Primero comenzaré prediciendo con un spline cúbico:
+(INSERTAR MODELO)
+
+```{r}
+# Modelos splines cuadráticos con un solo nodo.
+#Normopeso
+mcn <- lm(normo ~ bs(años, df = 4, degree = 3),data = dbn) #Modelo
+pred_mcn <- predict(mcn, newdata = nuevos_puntos, se.fit = TRUE, level = 0.95) #Predicción
+
+intervalo_confmcn <- data.frame(
+  inferiormcn = pred_mcn$fit - 1.96*pred_mcn$se.fit,
+  superiormcn = pred_mcn$fit + 1.96*pred_mcn$se.fit) #Intervalo de confianza
+
+#Representación
+par(mfrow=c(1,1))
+plot(x = años, y = normo, ylim=c(47,54),xlab='Tiempo (años)', ylab='Prevalencia (%)') #Nube de puntos
+title("Gráfica 4: Normopeso Spline Cuadrático")
+points(x = nuevos_puntos$años, pred_mcn$fit, col = "red", lwd = 1) #Predicciones
+points(x = nuevos_puntos$años, intervalo_confmcn$inferiormcn, col = "blue", 
+      lwd = 1, lty = 2) #Intervalos de confianza 
+points(x = nuevos_puntos$años, intervalo_confmcn$superiormcn, col = "blue", 
+      lwd = 1, lty = 2)
+```
+
+```{r}
+#Sobrepeso
+mcs <- lm(sobre ~ bs(años, df = 4, degree = 3),data = dbs) 
+pred_mcs <- predict(mcs, newdata = nuevos_puntos, se.fit = TRUE, level = 0.95)
+
+intervalo_confmcs <- data.frame(
+  inferiormcs = pred_mcs$fit - 1.96*pred_mcs$se.fit,
+  superiormcs = pred_mcs$fit + 1.96*pred_mcs$se.fit)
+
+plot(x = años, y = sobre, ylim=c(34.99,38.8),xlab='Tiempo (años)', ylab='Prevalencia (%)') 
+title("Gráfica 5: Sobrepeso Spline Cuadrático")
+points(x=nuevos_puntos$años, pred_mcs$fit,col='RED',lwd=1)
+points(x=nuevos_puntos$años,intervalo_confmcs$inferiormcs,col='Blue',lwd=1,lty=2)
+points(x=nuevos_puntos$años,intervalo_confmcs$superiormcs,col='Blue',lwd=1,lty=2)
+```
+
+```{r}
+#Obesidad
+mco <- lm(obe ~ bs(años, df = 4, degree = 3),data = dbo) 
+pred_mco <- predict(mco, newdata = nuevos_puntos, se.fit = TRUE, level = 0.95)
+
+intervalo_confmco <- data.frame(
+  inferiormco = pred_mco$fit - 1.96*pred_mco$se.fit,
+  superiormco = pred_mco$fit + 1.96*pred_mco$se.fit)
+
+plot(x = años, y = obe,xlab='Tiempo (años)', ylab='Prevalencia (%)') 
+title("Gráfica 6: Obesidad Spline Cuadrático")
+points(x=nuevos_puntos$años, pred_mco$fit,col='RED',lwd=1)
+points(x=nuevos_puntos$años,intervalo_confmco$inferiormco,col='Blue',lwd=2,lty=1)
+points(x=nuevos_puntos$años,intervalo_confmco$superiormco,col='Blue',lwd=2,lty=1)
+
+# Comprobación
+pred_mcn$fit+pred_mcs$fit+pred_mco$fit
+```
+
+En la gráfica cuatro se puede observar como a medida que pasa el tiempo la proporción de personas con nornopeso se ha reducido considerablemente. En rojo aparecen los valores predichos para ese rango de valores y en azúl el intervalo de confianza al 95%. Se observa que el intervalo de confianza por la parte inferior experimenta un ligero incremento entre los años 1998 y 2000.
+
+Por otro lado, en la gráfica cinco se muestra la proporción de personas con sobrepeso, cuyo valor se ha mantenido prácticamente constante a lo largo de los años. Se observa que el intervalo de confianza por la parte superior experimenta un ligero incremento entre los años 1998 y 2000.
+Comentar gráficas y en especial la de obesidad.
+
+Finalmente, en la gráfica seis se aprecia que el intervalo de confianza es extremadamente pequeño, tanto que prácticamente coincide con la recta estimada. Se aprecia también un incremento en la proporción de personas obesas a lo largo de los años, se estabiliza entre los años 1998 y 2003 para volver a subir.
+
+#Spline Natural
+
+A continuación realizaré un ajuste mediante un spline natural, este ajuste solventa el problema anterior de los extremos, la estrategia consiste en considerar la linealidad en los extremos. Esto se traduce que se produce un ajuste lineal para aquellas regiones en las que se encuentra la variable predictora tienen un menor valor que el menor de los nodo y mayor que el mayor de los nodos.
+
+El modelo que voy a utilizar para predecir va a ser el siguiente:
+(INSERTAR FÓRMULA)
+
+Este tipo de modelo es preferible usarlo para predicciones extramuestrales, sin embargo, he decidido considerarla por si usándolo las predicciones pueden ser mejores que en comapración al anterior.
+
+```{r}
+# Modelos splines cuadráticos con un solo nodo naturales.
+#Normopeso
+mn <- lm(normo ~ ns(años, df = 4),data = dbn) 
+
+pred_mn <- predict(mn, newdata = nuevos_puntos, se.fit = TRUE, level = 0.95)
+
+intervalo_confmn <- data.frame(
+  inferiormn = pred_mn$fit - 1.96*pred_mn$se.fit,
+  superiormn = pred_mn$fit + 1.96*pred_mn$se.fit)
+
+#Representación
+plot(x = años, y = normo, ylim=c(47,54.2),xlab='Tiempo (años)', ylab='Prevalencia (%)') 
+title("Gráfica 7: Normopeso Spline Natural")
+points(x = nuevos_puntos$años, pred_mn$fit, col = "red", lwd = 1) 
+points(x = nuevos_puntos$años, intervalo_confmn$inferiormn, col = "blue", 
+      lwd = 1, lty = 2) #Pinto el intervalo de confianza inferior
+points(x = nuevos_puntos$años, intervalo_confmn$superiormn, col = "blue", 
+      lwd = 1, lty = 2)
+```
+
+```{r}
+#Sobrepeso
+ms <- lm(sobre ~ ns(años, df = 4),data = dbs) 
+
+pred_ms <- predict(ms, newdata = nuevos_puntos, se.fit = TRUE, level = 0.95)
+
+intervalo_confms <- data.frame(
+  inferiorms = pred_ms$fit - 1.96*pred_ms$se.fit,
+  superiorms = pred_ms$fit + 1.96*pred_ms$se.fit)
+
+#Representación
+plot(x = años, y = sobre, ylim=c(34.99,39),xlab='Tiempo (años)', ylab='Prevalencia (%)') 
+title("Gráfica 8: Sobrepeso Spline Natural")
+points(x=nuevos_puntos$años, pred_ms$fit,col='RED',lwd=1)
+points(x=nuevos_puntos$años,intervalo_confms$inferiorms,col='Blue',lwd=1,lty=2)
+points(x=nuevos_puntos$años,intervalo_confms$superiorms,col='Blue',lwd=1,lty=2)
+
+```
+
+```{r}
+#Obesidad
+mo <- lm(obe ~ ns(años, df = 4),data = dbo) 
+
+pred_mo <- predict(mo, newdata = nuevos_puntos, se.fit = TRUE, level = 0.95)
+
+intervalo_confmo <- data.frame(
+  inferiormo = pred_mo$fit - 1.96*pred_mo$se.fit,
+  superiormo = pred_mo$fit + 1.96*pred_mo$se.fit)
+
+plot(x = años, y = obe,xlab='Tiempo (años)', ylab='Prevalencia (%)') 
+title("Gráfica 9: Obesidad Spline Natural")
+points(x=nuevos_puntos$años, pred_mo$fit,col='RED',lwd=1)
+points(x=nuevos_puntos$años,intervalo_confmo$inferiormo,col='Blue',lwd=1,lty=2)
+points(x=nuevos_puntos$años,intervalo_confmo$superiormo,col='Blue',lwd=1,lty=2)
+
+# Comprobación
+pred_mn$fit+pred_ms$fit+pred_mo$fit
+```
+
+En las gráficas obtenidas mediante un ajuste de spline natural se observa lo mismo que se observa en las obtenidas mediante el spline cuadrático en cuanto a comportamiento. Sim embago, los intervalos de confianza producidos por el spline natural son más amplios. Esto se puede observar perfectamente en la gráfica 9 en donde en contraposición a la gráfica 6, los intervalos de confianza no están tan pegados como para parecer una misma linea junto con los valores predichos.
+
+#Smooth Splines
+
+Finalmente probaré la técnica de smooth splines la cual es similar a la anterior pero consiguiendo una curva final suavizada. La estimación de f(x)GORRO tiene que miniminizar la suma de residuos al cuadrado, sin embargo, en caso de que sea cero se corre el riesgo de sobrestimación de los parámetros del modelo. Por ello, se incluye un término de penalización lambda que minimice la expresión.
+
+(INSERTAR FÓRMULA)
+
+A continuación el modelo ajustado mediante el método comentado:
+
+```{r}
+par(mfrow=c(1,1))
+#Normopeso
+mod_msn <- smooth.spline(normo~años,cv=TRUE)
+pred_msn <- predict(mod_msn, nuevos_puntos, se.fit = TRUE, level = 0.95)
+#Sobrepeso
+mod_mss <- smooth.spline(sobre~años, cv=TRUE)
+pred_mss <- predict(mod_mss, nuevos_puntos, se.fit = TRUE, level = 0.95)
+#Obesidad
+mod_mso <- smooth.spline(obe~años, cv=TRUE)
+pred_mso <- predict(mod_mso, nuevos_puntos, se.fit = TRUE, level = 0.95)
+
+plot(x = años, y = normo,ylim=c(9,54),xlab='Tiempo (años)', ylab='Prevalencia (%)',pch=17) 
+title("Gráfica 10:Smooth Splines")
+points(x = nuevos_puntos$años, pred_msn$y[,1], col = 2, lwd = 1,pch=2) 
+points(x = años, y = sobre,pch=17) 
+points(x = nuevos_puntos$años, pred_mss$y[,1], col = 4, lwd = 1,pch=2)
+points(x = años, y = obe,pch=17) 
+points(x = nuevos_puntos$años, pred_mso$y[,1], col = 6, lwd = 1,pch=2)
+legend(c(1993,1995),c(34,15),c("N","S","O"),pch=1,col=c(2,4,6))
+
+#Proporciones
+mod_msn$y+mod_mso$y+mod_mss$y
+```
+
+Se puede observar en la gráfica 10 los valores obtenidos para predecir los años faltantes y los que se me proporcionan no se ajustan muy bien. Eso se observa en normopeso y sobrepeso, en donde las predicciones no tienen mucho que ver con los valores reales. Sin embargo, eso no ocurre en el caso de obesidad que se ajustan prefectamente.
+
+Por otro lado, cuando hago la suma de las distintas predicciones no dan un total de 100, lo cual me confirma que las predicciones no son buenas del todo. 
+
+Para finalizar la práctica he calculado la RSS de cada uno de los modelos propuestos para cada vector de prevalencias y seleccionar aquel que tenga una RSS menor.
+
+```{r}
+# Calculo el RSS correspondiente a cada modelo.
+# Regresión Local Lineal
+n0<-sum((normo-pnl[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+s0<-sum((sobre-psl[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+o0<-sum((sobre-pol[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+# Regresión Local Cuadrática
+n1<-sum((normo-pnc[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+s1<-sum((sobre-psc[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+o1<-sum((obe-poc[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+#Kernels Gaussiano
+n2<-sum((normo-norm_mod$y[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+s2<-sum((sobre-sobre_mod$y[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+o2<-sum((obe-obe_mod$y[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+#Kernels Box
+n3<-sum((normo-norm_box$y[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+s3<-sum((sobre-sobre_box$y[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+o3<-sum((obe-obe_box$y[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+#Spline Cuadrático
+n4<-sum((normo-pred_mcn$fit[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+s4<-sum((sobre-pred_mcs$fit[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+o4<-sum((obe-pred_mco$fit[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+#Spline Natural
+n5<-sum((normo-pred_mn$fit[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+s5<-sum((sobre-pred_ms$fit[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+o5<-sum((obe-pred_mo$fit[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+#Smooth Splines
+n6<-sum((normo-mod_msn$y[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+s6<-sum((sobre-mod_mss$y[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+o6<-sum((obe-mod_mso$y[c(-2,-4,-6,-7,-8,-10,-12)])^2)
+
+# Los agrupo por tipos de prevalencia.
+rn<-c(n0,n1,n2,n3,n4,n5,n6)
+rs<-c(s0,s1,s2,s3,s4,s5,s6)
+ro<-c(o0,o1,o2,o3,o4,o5,o6)
+order(rn)
+order(rs)
+order(ro)
+
+
+#Lo meto todo en una matriz
+RSS <- c(rn,rs,ro)
+RSS <- matrix(RSS, ncol=3, nrow=7)
+colnames(RSS)<- c('normopeso','sobrepeso','obesidad')
+rownames(RSS)<- c('Ajuste Local Lineal','Ajuste Local Cuadrático', 'Kernels Gaussiano','Kernels Box', 'Spline Cuadratico', 'Spline Natural', 'Smooth Splines')
+RSS
+```
+
+De esta forma concluyo que el mejor modelo predictivo sería el conseguido con regresión lineal local para la prevalencia del normopeso y el sobrepeso ya que el valor de RSS obtenido es el menor con respecto al resto de modelos realizados, de 3.534097e-28 en normopeso y de 5.048710e-28 en la prevalencia del sobrepeso.Por otro lado, esto no ocurre en el caso de la prevalencia de la obesidad, en donde el modelo local cuadrático genera una RSS de  9.466331e-30. Cabe mencionar que la diferencia entre RSS del lineal y el cuadrático es muy leve para las tres prevalencias.
+

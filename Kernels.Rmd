@@ -1,0 +1,223 @@
+---
+title: "Tarea 1 MA&S Irene Extremera Serrano"
+author: "Irene Extremera Serrano"
+date: "4/4/2020"
+output: word_document
+editor_options: 
+  chunk_output_type: console
+---
+<div style="text-align: justify">
+
+
+<!-- ```{r global_options, include=FALSE, message=FALSE,fig.align="center"} -->
+<!--  knitr::opts_chunk$set(warning=FALSE) -->
+<!-- ``` -->
+
+ <!-- fig.width=13,fig.height=4 -->
+ 
+# Tarea 1 
+
+El objetivo de esta práctica es realizar una regresión polinommial local y de kernels explicando los distintos elementos y estrategias utilizados para realizar el ajsute. Además, consideraré distintos niveles de suavizado y me quedaré con el que sea óptimo para mis datos.
+
+Lo primero que hago es una gráfica enfrentando ambas variables para poder ver qué tipo de relación pueden tener. 
+
+```{r}
+t<-c(1.42,1.58,1.78,1.99,1.99,1.99,2.13,2.13,2.13,2.32,2.32, 2.32,2.32,2.32,
+2.43,2.43,2.78,2.98,2.98)
+d<-c(4.0,4.2,2.5,2.6,2.8,2.4,3.2,2.4,2.6,4.8,2.9,3.8,3.0, 2.7,3.1,3.3,3.0,
+2.8,1.7)
+i <- 1:19
+db <- data.frame(t,d)
+plot(db, main='Gráfica 1: Distribución de d respecto a t')
+```
+
+A primera vista en la gráfica 1 no veo ningún tipo de relación lineal entre la variable respuesta d y la variable explicativa t, por lo que considerar un ajuste no paramétrico no sería algo descabellado.
+
+## Regresión polinomial local lineal
+
+Primero realizaré una regresión polinomial local lineal. 
+Para este tipo de ajuste, el eje de las x se segmenta en intervalos, en estos intervalos habrá un punto de interés x sobre el cual se realizará el ajuste teniendo en cuenta el peso de los datos que se encuentran alrdedor. 
+
+Con las observaciones más cercanas se realiza el ajuste de regresión polinomial lineal con mínimos cuadrados ponderados sobre x. Por lo que los coeficientes estimados se obtienen a partir de la minimización de la siguiente expresión:
+
+(INSERTAR EXPRESIÓN)
+
+En lenguaje R se traduce en lo siguiente:
+
+```{r}
+plot(db, main='Gráfica 2: Ajuste polinomial local lineal')
+lines(lowess(t, d, f=.2), col=1)
+lines(lowess(t, d, f=.5), col=2)
+lines(lowess(t, d, f=.7), col=3)
+lines(lowess(t, d, f=1), col=4)
+legend(2.6,4.8,c(".2",".5",".7",'1'),lty=c(1,1,1),col=c(1,2,3,4))
+```
+
+En la gráfica dos aparece la nube de puntos sobre la cual se han realizado varios ajustes polinomiales locales lineales mediantela función lowess. Dentro de esta función el grado de suavizado viene determinado por el argumento f, en donde a medida que aumenta su valor también lo hace el grado de suavizado. Esto se comprueba comparando el suavizado de la curva para f=1 (color azul oscuro) y para f=.2 (color negro), en donde en esta último la linea ajustada tiene más quiebros en comparación a la generada por f=1 que es prácticamente una recta.
+
+Sin embargo, quiero quedarme con el valor de f que mejor ajuste. Para ello utilizo la función loess que es la que me permite hacer el cálculo del residuo para la regresión polinomial lienal cuando al argumento degree le doy el valor de 1.
+
+```{r}
+#Calculo la suma de cuadrados residual
+calcSSE_lineal <- function(x){
+  loessMod <- try(loess(d ~ t, data=db, span=x,degree = 1), silent=T)
+  res <- try(loessMod$residuals, silent=T)
+  if(class(res)!="try-error")
+    {
+      sse <- sum(res^2)  
+    }
+  else{
+    sse <- 99999
+  }
+  return(sse)
+}
+
+#Selecciono el valor del span óptimo
+set.seed(7)
+optim(par=c(0.5), calcSSE_lineal, method="SANN")
+```
+
+El valor óptimo para el span es el de 0.4137599 generando un residuo de 4.750714. Sin embargo, no sé si este valor será el óptimo también para el argumento f de la función lowess.
+
+Para ver cómo se diferencian realizaré un plot ajustando por lowess y loess y dando a span y a f el valor obtenido que minimiza la suma de cuadrados residual.
+
+```{r}
+plot(db, main='Gráfica 3: Ajuste PLL Definitivo')
+lines(lowess(t, d, f=.4137599), col=1)
+lines (t , predict (loess (d~t , span = .4137599, degree = 1) , t), col =2)
+legend(2.4,4.8,c("Lowess","Loess"),lty=c(1,1,1),col=c(1,2))
+```
+
+Veo que con la función lowess el ajuste está ligeramente más suavizado que con la función loess. Otra cosa a observar es que el ajuste polinomial local lineal de loess (degree=1) no es el mismo que realiza la función lowess, y esto puede apreciarse en que las rectas no están solapadas del todo.
+Esto puede ser debido a que los pesos que utiliza cada función sean diferentes y por ello el que las curvas también lo sean.
+
+## Regresión local cuadrática
+
+A continuación realizo un ajuste local cuadrático. La dinámica es la misma que en el anterior pero en ved de un ajuste lineal se realiza uno cuadrático.
+Para ello empleo la función loess.
+
+```{r, warning=FALSE}
+plot(db, main='Gráfica 4: Ajuste polinomial local cuadrático')
+lines (t , predict ( loess (d~t , span = 1) , t), col =1) 
+lines (t , predict ( loess (d~t , span = .9) , t), col =2)
+lines (t , predict ( loess (d~t , span = .7) , t), col=3)
+lines (t , predict ( loess (d~t , span =.5) , t), col=4)
+legend(2.5,4.9,c("1",".9",".7",'.5'),lty=c(1,1,1),col=c(1,2,3,4))
+```
+
+Se puede observar en la gráfica cuatro la representación de varios ajustes sobre la nube de puntos. Los distintos ajustes han sido realizados cambiando el grado de suavizado (proporción de puntos que hay en cada intervalo) mediante el argumento span (análogo a f en lowess). Se puede comprobar que a medida que disminuye el valor del span la curva es menos suavizada. Por ejemplo, al comparar el ajuste dando al span el valor de 1 con el de valor .5 se observa que el de uno la linea tiene unas curvas menos pronunciadas en comaparación a la de .5.
+
+La cuestión que surge es la de saber cuál es el valor de span que genere un modelo con una menor suma de cuadrados residual menor. 
+
+```{r}
+#Calculo la suma de cuadrados residual
+calcSSE <- function(x){
+  loessMod <- try(loess(d ~ t, data=db, span=x), silent=T)
+  res <- try(loessMod$residuals, silent=T)
+  if(class(res)!="try-error")
+    {
+      sse <- sum(res^2)  
+    }
+  else{
+    sse <- 99999
+  }
+  return(sse)
+}
+
+#Selecciono el valor del span óptimo
+set.seed(7)
+optim(par=c(0.5), calcSSE, method="SANN")
+```
+
+Por lo que el valor de spam óptimo es de 0.3632329 cuyo modelo genera una suma de cuadrados residual de 4.063667. 
+
+```{r}
+plot(db, main='Gráfica 5: Ajuste PLC Definitivo')
+lines (t , predict ( loess (d~t , span = .3632329) , t), col =5,lwd=3)
+```
+
+En la gráfica 5 se puede observar el ajuste local cuadrático definitivo.
+En comparación con el modelo ajustado por regresión polinomial local el valor de la suma de cuadrados residual es mayor, 4.750714, que el obtenido mediante la regresión polinomial local cuadrática, 4.063667. Por lo que en caso de elegir alguno de los dos ajustes elegiría el ajuste cuadrático.
+
+
+## Regresión kernels.
+
+Para finalizar la práctica realizaré un ajuste mediante kernels.
+En este ajuste también se eligen un punto de interés x que se encuentra centradO en un intervalo definido como (x-h,x+h) siendo h el ancho de banda o bandwidth.
+A diferencia de lo anterior, la función de suavizado se obtiene a partir del promedio ponderado de y correspondientes a cada ventana de suavizado y uniendo los distintos puntos se obtiene la recta final.
+
+La estimación de la función es la siguiente:
+(INSERTAR)
+
+En donde K(·) es la función kernel o de los pesos, se encarga de dar más importancia a las observaciones que se encuentran más cerca del punto de interés x de cada ventana de suavizado. Hay varias funciones kernel que se podrían utilizar (bicuadrada, caja, Gaussiana, Epanechnikov) pero solamente utilizaré la Gaussiana y caja ya que son las que me permite realizar R con la función ksmooth.
+
+```{r}
+plot (db,col='gray',pch=16, main='Gráfica 6: Ajuste Kernels (Gauss)') 
+lines ( ksmooth (t , d ,"normal", bandwidth =1) ,  col =1)
+lines ( ksmooth (t , d ,"normal", bandwidth =.7) ,  col =2)
+lines ( ksmooth (t , d ,"normal", bandwidth =.5),  col =3)
+lines ( ksmooth (t , d ,"normal", bandwidth =.2), col =4)
+legend(2.5,4.9,c("1",".7",".5",'.2'),lty=c(1,1,1),col=c(1,2,3,4))
+```
+
+```{r}
+#Calculo la suam de cuadrados residual para el ajuste con Kernels normal
+calcSSE <- function(x){
+  loessMod <- try(ksmooth(t , d ,"normal", bandwidth =x), silent=T)
+  res <- try(d-ksmooth(t , d ,"normal", bandwidth =x)$y, silent=T)
+  if(class(res)!="try-error")
+    {
+      sse <- sum(res^2)  
+    }
+  else{
+    sse <- 99999
+  }
+  return(sse)
+}
+
+#Selecciono el valor del span óptimo
+set.seed(7)
+optim(par=c(0.5), calcSSE, method="SANN")
+
+#Dibujo la recta ajustada
+plot (db,col='gray',pch=16, main='Gráfica 6.1: Ajuste Kernels Def (Gauss)') 
+lines ( ksmooth (t , d ,"normal", bandwidth =3.637817) ,  col =1)
+```
+
+```{r}
+plot (db,col='gray',pch=16, main='Gráfica 7: Ajuste Kernels (Caja)') 
+lines ( ksmooth (t , d ,"box", bandwidth =1) ,  col =1)
+lines ( ksmooth (t , d ,"box", bandwidth =.7) ,  col =2)
+lines ( ksmooth (t , d ,"box", bandwidth =.5),  col =3)
+lines ( ksmooth (t , d ,"box", bandwidth =.2), col =4)
+legend(2.5,4.9,c("1",".7",".5",'.2'),lty=c(1,1,1),col=c(1,2,3,4))
+```
+
+```{r}
+#Calculo la suam de cuadrados residual para el ajuste con Kernels box
+calcSSE <- function(x){
+  loessMod <- try(ksmooth(t , d ,"box", bandwidth =x), silent=T)
+  res <- try(d-ksmooth(t , d ,"box", bandwidth =x)$y, silent=T)
+  if(class(res)!="try-error")
+    {
+      sse <- sum(res^2)  
+    }
+  else{
+    sse <- 99999
+  }
+  return(sse)
+}
+
+#Selecciono el valor del span óptimo
+set.seed(7)
+optim(par=c(0.5), calcSSE, method="SANN")
+
+#Dibujo la recta ajustada
+plot (db,col='gray',pch=16, main='Gráfica 7.1: Ajuste Kernels Def (Gauss)') 
+lines ( ksmooth (t , d ,"normal", bandwidth =2.787247) ,  col =1)
+```
+
+Se puede observar que el ajuste es, a simple vista, bastante diferente usando una función kernel u otra. En la gráfica 6 el ajuste parece más suavizado que en la gráfica 7 en donde hay muchas más rugosidades en las rectas.
+Esto puede apreciarse muy bien en brandwidth=1, en la Gaussiana tiene más pinta de recta mientras que en Caja hay muchos más quiebros.
+
+Otra cosa a mencionar es que a medida que valor de brandwidth es más pequeño la curva está mucho menos suavizada que cuando tiene un valor muy grande. Esto tiene que ver con la cantidad de datos que se utilizan para calcular el ajuste por ventanas de suavizado. Cuanto mayor es la ventana, más datos se utilizan para el suavizado y menor número de ajustes se realizan, mientras que cuando la ventana es mas bien pequeña, se realiza un mayor número de ajustes y se cojen para ello una menor proporción de datos y a eso se debe esa diferencia de unas curvas a otras dentro de una misma gráfica. Por ejemplo en la gráficaseis se puede observar la diferencia que hay entre la curva producida por un brandwidth = 1, la cual es bastante suave, mientras que para un brandwidth=.2 la recta ajustada es mucho menos suavizada.
